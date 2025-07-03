@@ -1,0 +1,52 @@
+# "org" ensures this Service is used with the correct Serverless Framework Access Key.
+# org: foursides
+# "app" enables Serverless Framework Dashboard features and sharing them with other Services.
+# app: foursides
+
+# Project name on the infrastructure created
+service: foursides-poc
+
+plugins:
+    - serverless-python-requirements
+
+provider:
+    name: aws
+    runtime: python3.12
+    stage: poc
+    region: ap-southeast-1
+    timeout: 29
+    endpointType: REGIONAL
+    apiGateway:
+        shouldStartNameWithService: true
+    environment:
+        TOGETHER_AI_API_KEY: abc
+        FILE_STORAGE: /tmp/files
+        PORT: 3000
+
+functions:
+    api:
+        handler: server.handler
+        events:
+            - http:
+                  path: /
+                  method: ANY
+                  cors: true
+            - http:
+                  path: /{proxy+}
+                  method: ANY
+                  cors: true
+
+custom:
+    pythonRequirements:
+        fileName: requirements.txt
+        dockerizePip: true
+        zip: true
+        slim: true
+        invalidateCaches:
+            true
+            # slim: true
+            # dockerizePip: true # Ensure Linux-compatible builds
+            # useStaticCache: false # Disable caching
+            # # Add these two critical settings:
+            # strip: false # Prevent over-optimization
+            # injectFiles: true # Ensure unzip script works

@@ -1,0 +1,11 @@
+Requests==2.32.4
+backend==0.2.4.1
+beautifulsoup4==4.13.4
+fastapi==0.115.14
+mangum==0.19.0
+opencc==1.1.9
+pydantic-settings==2.10.1
+pydantic==2.11.7
+pydantic_core==2.33.2
+selenium==4.34.0
+undetected_chromedriver==3.5.5
