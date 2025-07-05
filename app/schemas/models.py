@@ -1,6 +1,8 @@
 from enum import Enum
 from typing import List
 from pydantic import BaseModel, HttpUrl
+from typing import Optional
+
 
 class Region(str, Enum):
     GLOBAL = 'Global'
@@ -39,5 +41,8 @@ class NewsRequest(BaseModel):
     media: str
 
 class NewsResponse(BaseModel):
-    title: str
-    content: str
+    title:  Optional[str]
+    content:  Optional[str]
+    published_at: Optional[int] 
+    authors: List[str] = []
+    images: List[str] = []

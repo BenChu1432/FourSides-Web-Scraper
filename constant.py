@@ -1,6 +1,7 @@
 from webScraper.news import *
 
 NEWS_CLASSES = {
+    "HongKongFreePress": HongKongFreePress,
     "MingPaoNews": MingPaoNews,
     "SingTaoDaily": SingTaoDaily,
     "SCMP": SCMP,

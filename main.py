@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware  # ✅ Import CORS middleware
-from app.routers import preferences,web_scraping
+from app.routers import web_scraping
 
 app = FastAPI(title="S-News API")
 
@@ -15,7 +15,6 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"message": "Welcome to S-News API"}
+    return {"message": "Welcome to FourSides Web Scraper"}
 
-app.include_router(preferences.router, prefix="/preferences", tags=["preferences"])
 app.include_router(web_scraping.router, prefix="/web-scraping", tags=["web-scraping"])

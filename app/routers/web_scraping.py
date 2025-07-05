@@ -20,7 +20,6 @@ def parse_news_article(news: NewsRequest):
 
     try:
         article = parser_class(url)
-        print("article:",article)
-        return NewsResponse(title=article.title, content=article.content)
+        return NewsResponse(title=article.title, content=article.content,published_at=article.published_at, authors=article.authors, images=article.images)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error parsing article: {str(e)}")
