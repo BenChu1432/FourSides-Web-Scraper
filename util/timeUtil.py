@@ -1,7 +1,5 @@
 from datetime import datetime,timedelta
 import dateparser
-import pytz
-import re
 
 def standardDateToTimestamp(date_str: str):
     date_obj = dateparser.parse(date_str)
@@ -11,7 +9,7 @@ def standardDateToTimestamp(date_str: str):
 def standardChineseDatetoTimestamp(date_str: str) -> int:
     dt = dateparser.parse(date_str, languages=['zh'])
     if dt is None:
-        raise ValueError("Invalid MingPao date")
+        raise ValueError("Invalid Chinese date")
     return int(dt.timestamp())
 
 def TheCourtNewsDateToTimestamp(date_str: str):
@@ -99,7 +97,5 @@ def HKEJDateToTimestamp(date_str: str):
 
     return int(dt.timestamp())
 
-    if dt is None:
-        raise ValueError(f"Could not parse date from input: {text}")
 
-    return int(dt.timestamp())
+

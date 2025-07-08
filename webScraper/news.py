@@ -1,5 +1,6 @@
 import re
 from typing import Optional
+from urllib.parse import urlparse
 import requests
 from bs4 import BeautifulSoup
 from abc import ABC, abstractmethod
@@ -9,6 +10,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 import time
 import undetected_chromedriver 
+import datetime
 # from translation import translate_text
 from util.timeUtil import HKEJDateToTimestamp, IntiumChineseDateToTimestamp, NowTVDateToTimestamp, RTHKChineseDateToTimestamp, SCMPDateToTimestamp, SingTaoDailyChineseDateToTimestamp, TheCourtNewsDateToTimestamp, standardChineseDatetoTimestamp, standardDateToTimestamp
 from webScraper.simplifiedChineseToTraditionalChinese import simplifiedChineseToTraditionalChinese
@@ -19,18 +21,19 @@ WAITING_TIME_FOR_JS_TO_FETCH_DATA=0
 
 class News(ABC):
     title: Optional[str]
-    subtitle: Optional[str]
     content: Optional[str]
     published_at: Optional[int]
+    origin: Optional[int]
     authors: List[str]
     images: List[str]
+    origin: Optional[str]
 
-    def __init__(self, url):
+    def __init__(self, url=None):
         self.url = url
         self.title = None
-        self.subtitle = None
         self.content = None
         self.published_at=None
+        self.origin="native"
         self.authors=[]
         self.images=[]
         self._fetch_and_parse()
@@ -38,14 +41,14 @@ class News(ABC):
     def _fetch_and_parse(self):
         try:
             headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.5',
-    'Referer': 'https://google.com/',
-    'Connection': 'keep-alive',
-    'DNT': '1',
-    'Upgrade-Insecure-Requests': '1',
-}
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.5',
+                        'Referer': 'https://google.com/',
+                        'Connection': 'keep-alive',
+                        'DNT': '1',
+                        'Upgrade-Insecure-Requests': '1',
+                    }
             response = requests.get(self.url, headers=headers)
             response.encoding = 'utf-8'
             response.raise_for_status()
@@ -79,19 +82,6 @@ class News(ABC):
             self.published_at = None
         print("self.published_at:", self.published_at)
 
-        # Extract authors (no authors)
-        # self.authors = []
-        # login_div = soup.find("div", class_="articlelogin")
-        # if login_div:
-        #     h2 = login_div.find("h2")
-        #     if h2:
-        #         authors_text = h2.get_text(strip=True)
-        #         if authors_text:
-        #             for author in authors_text.split(" "):
-        #                 if author and author != "明報記者":
-        #                     self.authors.append(author.strip())
-        # print("self.authors:", self.authors)
-
         # Extract content
         content_div = soup.find("article")
         if not content_div:
@@ -105,6 +95,9 @@ class News(ABC):
             self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
         else:
             self.content = "No content found"
+
+        
+    
 
 # HK News Media
 class HongKongFreePress(News):
@@ -316,7 +309,7 @@ class ChineseNewYorkTimes (News):
         print("🔗 嘗試連線至：", self.url)
 
         try:
-            driver.get(self.url)
+            driver.get(str(self.url))
             time.sleep(WAITING_TIME_FOR_JS_TO_FETCH_DATA)  # 等待 JS 載入
 
             html = driver.page_source
@@ -331,24 +324,118 @@ class ChineseNewYorkTimes (News):
                 print("📄 Content Preview:\n",  self.content, "...")
             else:
                 print("⚠️ 找不到文章內容")
+
+            # Extract publication date and authors
+            byline=soup.find("div",class_="byline")
+            if byline:
+                date_time=byline.find("time")
+                authors_address=byline.find("address")
+                if date_time:
+                    date=date_time.get_text()
+                    self.published_at=standardChineseDatetoTimestamp(date)
+                if authors_address:
+                    authors_text=authors_address.get_text()
+                    authors=authors_text.split(",")
+                    self.authors=authors
+
+            # Extract images
+            figure=soup.find("figure",class_="article-span-photo")
+            if figure:
+                image=figure.find("img")
+                if image:
+                    src=image['src']
+                    self.images.append(src)
         except Exception as e:
             print("❌ 錯誤：", e)
 
         driver.quit()
 
 class DeutscheWelle (News):
-    def _parse_article(self, soup):
-        # Extract title
-        title = soup.find("h1").get_text()
-        self.title=simplifiedChineseToTraditionalChinese(title)
+    def _fetch_and_parse(self):
+        self._parse_article()
 
-        # Extract content
-        content_div = soup.find("div", class_="c17j8gzx rc0m0op r1ebneao s198y7xq rich-text li5mn0y r1r94ulj wngcpkw blt0baw")
-        if content_div:
-            paragraphs=content_div.find_all("p")
-            self.content = simplifiedChineseToTraditionalChinese("\n".join(p.get_text(strip=True) for p in paragraphs))
-        else:
-            self.content = "No content found"
+    def _parse_article(self):
+        # 使用非 headless 模式（可視化）
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+
+        driver = webdriver.Chrome(options=options)
+
+        # 加上防偵測腳本
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": """
+                Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+                });
+            """
+        })
+        driver.execute_script("""
+            let modals = document.querySelectorAll('.popup, .modal, .ad, .overlay, .vjs-modal');
+            modals.forEach(el => el.remove());
+        """)
+
+        # 建議測試短網址，避免過長導致連線問題
+        print("🔗 嘗試連線至：", self.url)
+
+        try:
+            driver.get(str(self.url))
+            time.sleep(0)  # 等待 JS 載入
+
+            html = driver.page_source
+            soup = BeautifulSoup(html, "html.parser")
+
+            # Extract title
+        # def _parse_article(self,soup):
+            title = soup.find("h1").get_text()
+            self.title=simplifiedChineseToTraditionalChinese(title)
+
+            # Extract content
+            content_div = soup.find("div", class_="c17j8gzx")
+            if content_div:
+                paragraphs=content_div.find_all("p")
+                self.content = simplifiedChineseToTraditionalChinese("\n".join(p.get_text(strip=True) for p in paragraphs))
+            else:
+                self.content = "No content found"
+
+            # Extract publication
+            date_span=soup.find("span",class_="publication")
+            if date_span:
+                date=date_span.find("time")
+                date=date.get_text()
+                self.published_at=standardChineseDatetoTimestamp(date)
+
+            # Extract author
+            a=soup.find('a',class_="author")
+            if a:
+                name=a.get_text()
+                self.authors.append(name)
+
+            # Extract images
+            picture=soup.find("picture",class_="s9gezr6")
+            print('picture:',picture)
+            if picture:
+                image=picture.find('img')
+                if image:
+                    srcset=image["srcset"]
+                    # print("srcset:",srcset)
+                    sources=srcset.split(",")
+                    # print("sources:",sources)
+                    source_and_width=sources[len(sources)-1]
+                    source_and_width_list=source_and_width.split()
+                    source=source_and_width_list[0]
+                    self.images.append(source)
+
+        except Exception as e:
+            print("❌ 錯誤：", e)
+
+        driver.quit()
 
 class HKFreePress(News):
     # Extract title
@@ -561,12 +648,6 @@ class HK01(News):
             else:
                 self.content = "No content found"
             print("self.content:",self.content)
-
-            if self.content:
-                self.content = "\n".join(p.get_text(strip=True) for p in  self.content)
-                print("📄 Content Preview:\n",  self.content, "...")
-            else:
-                print("⚠️ 找不到文章內容")
         except Exception as e:
             print("❌ 錯誤：", e)
 
@@ -820,6 +901,31 @@ class ChineseBBC(News):
             self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
         else:
             self.content = "No content found"
+        
+        # Extract author
+        author_span=soup.find("span",class_="bbc-1orxave")
+        if author_span:
+            author=author_span.get_text()
+            self.authors.append(author)
+
+        # Extract publication date
+        date_time=soup.find("time",class_="bbc-xvuncs e1mklfmt0")
+        if date_time:
+            date=date_time["datetime"]
+            self.published_at=standardDateToTimestamp(date)
+
+        # Extract images
+        main=soup.find("main",{"role":"main"})
+        recommendations_heading=main.find("section",{"data-e2e":"recommendations-heading"})
+        if recommendations_heading:
+            recommendations_heading.decompose()
+        print("main:",main)
+        if main:
+            images=main.find_all("img")
+            print("images:",images)
+            for image in images:
+                image=image["src"]
+                self.images.append(image)
 
 class VOC(News):
     def _parse_article(self, soup):
@@ -834,6 +940,28 @@ class VOC(News):
             self.content = simplifiedChineseToTraditionalChinese("\n".join(p.get_text(strip=True) for p in paragraphs))
         else:
             self.content = "No content found"
+        
+        # Extract date
+        publication_date=soup.find("time",{"pubdate":"pubdate"})
+        if publication_date:
+            date=publication_date.get_text()
+            self.published_at=standardDateToTimestamp(date)
+
+        # Extract author
+        author_link=soup.find("a",class_="links__item-link")
+        if author_link:
+            name=author_link.get_text()
+            self.authors.append(name)
+
+        # Extract images
+        image_div=soup.find("div",class_="cover-media")
+        if image_div:
+            image=image_div.find("img")
+            if image:
+                src=image['src']
+                modified_url = re.sub(r'_w\d+', f'_w{1000}', src)
+                self.images.append(modified_url)
+        print(self.images)
 
 class HKCourtNews(News):
     def _parse_article(self, soup):
@@ -1483,18 +1611,234 @@ class UnitedDailyNews(News):
 
 
 class LibertyTimesNet(News):
+    #  def _fetch_and_parse(self):
+    #     self._parse_article()
+
+    # def _parse_article(self):
+    #     # 使用非 headless 模式（可視化）
+    #     options = undetected_chromedriver.ChromeOptions()
+    #     options.add_argument("--headless")
+    #     options.add_argument("--disable-gpu")
+    #     options.add_argument("--no-sandbox")
+    #     options.add_argument("--window-size=1280,800")
+    #     options.add_argument("--disable-blink-features=AutomationControlled")
+    #     options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    #     options.add_experimental_option("useAutomationExtension", False)
+    #     options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+
+    #     driver = webdriver.Chrome(options=options)
+
+    #     # 加上防偵測腳本
+    #     driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+    #         "source": """
+    #             Object.defineProperty(navigator, 'webdriver', {
+    #             get: () => undefined
+    #             });
+    #         """
+    #     })
+    #     driver.execute_script("""
+    #         let modals = document.querySelectorAll('.popup, .modal, .ad, .overlay, .vjs-modal');
+    #         modals.forEach(el => el.remove());
+    #     """)
+
+    #     # 建議測試短網址，避免過長導致連線問題
+    #     print("🔗 嘗試連線至：", self.url)
+
+    #     try:
+    #         driver.get(str(self.url))
+    #         time.sleep(WAITING_TIME_FOR_JS_TO_FETCH_DATA)  # 等待 JS 載入
+
+    #         html = driver.page_source
+    #         soup = BeautifulSoup(html, "html.parser")
+    #         # Extract title
+    #         title_tag = soup.find("meta", property="og:title")
+    #         self.title = title_tag["content"].strip() if title_tag else "No title found"
+
+    #         # Extract content
+    #         content_selectors=[
+    #             {"selector": "div.whitecon.article[data-page='1']"},
+    #             {"selector": "div.text",},  # Preferred - time tag with datetime attribute
+    #         ]
+    #         for selector in content_selectors:
+    #             element=soup.select_one(selector["selector"])
+    #             if element:
+    #                 appPromo=element.find("p",class_="appE1121")
+    #                 captions=element.find_all("span",class_="ph_d")
+    #                 if appPromo:
+    #                     appPromo.decompose()
+    #                 if captions:
+    #                     for caption in captions:
+    #                         caption.decompose()
+    #                 content_div=element.find_all(["p","h"])   
+    #                 self.content = "\n".join(p.get_text(strip=True) for p in content_div)
+    #                 break
+
+    #         # Extract published date
+    #         date_selector=[
+    #             {"selector": "div.article div.function","text": True},  # Preferred - time tag with datetime attribute
+    #             {"selector": "span.time","text": True}
+    #         ]
+    #         for selector in date_selector:
+    #             element=soup.select_one(selector["selector"])
+    #             print("element:",element)
+    #             date=element.get_text()
+    #             self.published_at=standardDateToTimestamp(date)
+    #         print("self.published_at:",self.published_at)
+
+    #         # Extract images
+    #         images=soup.find("div",class_="text").find_all("img")
+    #         for image in images:
+    #             self.images.append(image["data-src"])
+    
+    #     except Exception as e:
+    #         print("❌ 錯誤：", e)
+        
+    #     driver.quit()
      def _parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
 
         # Extract content
-        paragraphs = soup.find("div",class_="text boxTitle boxText").find_all("p")
-        self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
+        content_selectors=[
+            # {"selector":"div.article"},
+            {"selector": "div.whitecon.article[data-page='1']"},
+            {"selector": "div.text",},  # Preferred - time tag with datetime attribute
+        ]
+        for selector in content_selectors:
+            element=soup.select_one(selector["selector"])
+            print("element:",element)
+            # if element and len(element)>1:
+            #     element=element[0]
+            if element:
+                appPromo=element.find("p",class_="appE1121")
+                captions=element.find_all("span",class_="ph_d")
+                if appPromo:
+                    appPromo.decompose()
+                if captions:
+                    for caption in captions:
+                        caption.decompose()
+                content_div=element.find_all(["p","h"])   
+                self.content = "\n".join(p.get_text(strip=True) for p in content_div)
+                break
+
+        # Extract published date
+        date_selector=[
+            {"selector": "div.whitecon.article[data-page='1'] span.time",},  # Preferred - time tag with datetime attribute
+            {"selector": "span.time","text": True}
+        ]
+        for selector in date_selector:
+            element=soup.select_one(selector["selector"])
+            if element:
+                date=element.get_text()
+                self.published_at=standardDateToTimestamp(date)
+                break
+        print("self.published_at:",self.published_at)
+
+        # Extract images
+        image_selectors=[
+             {"selector": "div.whitecon.article[data-page='1']"}, 
+             {"selector": "div.article-wrap div.text","data-desc":"內容頁"}, 
+             {"selector": "div.text"}, 
+        ]
+        for selector in image_selectors:
+            element=soup.select_one(selector["selector"])
+            # print("element:",element)
+            isReadyToBreak=False
+            if element:
+                images=element.find_all("img")
+                for image in images:
+                    self.images.append(image["data-src"])
+                isReadyToBreak=True
+            if isReadyToBreak==True:
+                break
+
+        # Extract authors (no authors)
+        authors_selectors=[
+             {"selector": "div.whitecon.article[data-page='1']"}, 
+             {"selector": "div.whitecon.article[itemprop='articleBody'] .text.boxText"}
+        ]
+        for selector in authors_selectors:
+            element = soup.select_one(selector["selector"])
+            isOutLoopReadyToBreak = False
+
+            if element:
+                for p in element.find_all('p'):
+                    text = p.get_text()
+
+                    # Pattern 1: 記者[Name]／
+                    match = re.search(r'記者(\w{2,4})／', text)
+                    if match:
+                        self.authors.append(match.group(1).strip())
+                        isOutLoopReadyToBreak = True
+                        break  # Stop after first match
+
+                    # Pattern 2: [Name]／核稿編輯
+                    match = re.search(r'(\w{2,4})／核稿編輯', text)
+                    if match:
+                        self.authors.append(match.group(1).strip())
+                        isOutLoopReadyToBreak = True
+                        break  # Stop after first match
+
+            if isOutLoopReadyToBreak:
+                break
+
+
+
+
 
 class ChinaTimes(News):
     def _fetch_and_parse(self):
         self._parse_article()
+
+    def get_article_urls(self, max_pages=5):
+        base_url = "https://www.chinatimes.com/realtimenews/?chdtv"
+
+        # Set up headless Chrome
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+        driver = webdriver.Chrome(options=options)
+
+        all_urls = []
+
+        try:
+            for page in range(1, max_pages + 1):
+                url = f"{base_url}/?page={page}"
+
+                print(f"Loading page: {url}")
+                driver.get(url)
+                time.sleep(2)  # wait for JS to load
+
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+
+                articles = soup.select("ul.vertical-list li")
+                if not articles:
+                    print("No more articles.")
+                    break
+
+                stop = False
+                for article in articles:
+                    a_tag = article.select_one("h3.title a")
+                    if a_tag:
+                        href = a_tag['href']
+                        url="https://www.chinatimes.com"+href
+                        print("full_url:",url)
+                        all_urls.append(url)
+
+                if stop:
+                    break
+
+        finally:
+         driver.quit()
+
+        return all_urls
 
     def _parse_article(self):
         # 使用非 headless 模式（可視化）
@@ -1527,15 +1871,58 @@ class ChinaTimes(News):
         print("🔗 嘗試連線至：", self.url)
 
         try:
-            driver.get(self.url)
+            driver.get(str(self.url))
             time.sleep(WAITING_TIME_FOR_JS_TO_FETCH_DATA)  # 等待 JS 載入
 
             html = driver.page_source
             soup = BeautifulSoup(html, "html.parser")
 
-            self.title = soup.find("h1", class_="article-title").get_text()
-            self.content = soup.find_all("p")
-            self.content="\n".join(p.get_text(strip=True) for p in  self.content)
+            title_h1=soup.find("h1", class_="article-title")
+            if title_h1:
+                self.title=title_h1.get_text()
+            content_div = soup.find("article")
+            if content_div:
+                # Safely remove elements if they exist
+                comments_section = content_div.find("section", class_="comments")
+                if comments_section:
+                    comments_section.decompose()
+
+                newsletter_div = content_div.find("div", class_="subscribe-news-letter")
+                if newsletter_div:
+                    newsletter_div.decompose()
+
+                # Extract paragraphs
+                content_p = content_div.find_all("p")
+                print("content_p:", content_p)
+
+                # Join all paragraph texts together
+                all_text = "\n".join(p.get_text(strip=True) for p in content_p if p)
+                self.content = all_text
+
+            # Extract published date
+            meta_info = soup.find("div", class_="meta-info")
+            if meta_info:
+                time_tag = meta_info.find("time")
+                if time_tag and time_tag.has_attr('datetime'):
+                    date = time_tag['datetime']  # Correct way to access the attribute
+                    print("date:", date)
+                    self.published_at = standardDateToTimestamp(date)
+                else:
+                    print("No datetime attribute found in time tag")
+            else:
+                print("No meta-info div found")
+            
+            # Extract author
+            author_div=soup.find("div",class_="author")
+            if author_div:
+                author=author_div.get_text(strip=True)
+                self.authors.append(author)
+
+            # Extract images
+            photoContainer=soup.find("div",class_="photo-container")
+            if photoContainer:
+                image=photoContainer.find("img")["src"]
+                self.images.append(image)
 
         except Exception as e:
             print("❌ 錯誤：", e)
@@ -1551,6 +1938,52 @@ class CNA(News):
         paragraphs = soup.find("div",class_="paragraph").find_all("p")
         self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
 
+        # Extract published date
+        date_selector=[
+            {"selector": "div.updatetime span:first-child",},  # Preferred - time tag with datetime attribute
+        ]
+        for selector in date_selector:
+            element=soup.select_one(selector["selector"])
+            if element:
+                date=element.get_text()
+                self.published_at=standardDateToTimestamp(date)
+                break
+        print("self.published_at:",self.published_at)
+
+        # Extract images
+        date_selector=[
+            {"selector": "figure.center img","attr": "src"},  # Preferred - time tag with datetime attribute
+        ]
+        for selector in date_selector:
+            element=soup.select_one(selector["selector"])
+            if element:
+                self.images.append(element["src"])
+                break
+        print("self.published_at:",self.published_at)
+
+        # Extract authors
+        date_selector=[
+            {"selector": "div.paragraph"},
+        ]
+        for selector in date_selector:
+            element=soup.select_one(selector["selector"])
+            # print("element:",element)
+            if element:
+                paragraphs=element.find_all('p')
+                for paragraph in paragraphs:
+                    text=paragraph.get_text()
+                    print("text:",text)
+                    # 1. First, try to extract the journalist name (primary author)
+                    journalist_match = re.search(r'（中央社記者([\u4e00-\u9fff]{2,4})', text)
+                    if journalist_match:
+                        self.authors.append(journalist_match.group(1))
+                    
+                    # 2. Fallback: Check for editor names (only if no journalist is found)
+                    editor_match = re.search(r'編輯：([\u4e00-\u9fff]{2,4})', text)
+                    if editor_match and not self.authors:  # Avoid adding editors if journalist exists
+                        self.authors.append(editor_match.group(1))
+                break
+
 class TaiwanEconomicTimes(News):
     def _parse_article(self, soup):
         # Extract title
@@ -1560,8 +1993,103 @@ class TaiwanEconomicTimes(News):
         paragraphs = soup.find("section",class_="article-body__editor").find_all("p")
         self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
 
+        # Extract published date
+        date_selector=[
+            {"selector": "time.article-body__time",},  # Preferred - time tag with datetime attribute
+        ]
+        for selector in date_selector:
+            element=soup.select_one(selector["selector"])
+            if element:
+                date=element.get_text()
+                self.published_at=standardDateToTimestamp(date)
+                break
+        print("self.published_at:",self.published_at)
+
+        # Extract authors
+        date_selector=[
+            {"selector": "div.article-body__info span"},
+        ]
+        for selector in date_selector:
+            element=soup.select_one(selector["selector"])
+            print("element:",element)
+            if element:
+                text=element.get_text()
+                print("text:",text)
+                # 1. First, try to extract the journalist name (primary author)
+                journalist_match = re.search(r'中央社 記者([\u4e00-\u9fff]{2,3})', text)
+                if journalist_match:
+                    self.authors.append(journalist_match.group(1))
+                
+                # 1. First, try to extract the journalist name (primary author)
+                journalist_match = re.search(r'經濟日報 編譯([\u4e00-\u9fff]{2,3})', text)
+                if journalist_match:
+                    self.authors.append(journalist_match.group(1))
+
+        # Extract images
+        date_selector=[
+            {"selector": "figure.article-image img"},  # Preferred - time tag with datetime attribute
+        ]
+        for selector in date_selector:
+            element=soup.select_one(selector["selector"])
+            if element:
+                self.images.append(element["src"])
+                break
+        print("self.published_at:",self.published_at)
+
 class PTSNews(News):
-    pass
+    def _parse_article(self, soup):
+        # Extract title
+        self.title = soup.find("h1").get_text()
+
+        # Extract content
+        paragraphs = soup.find("div",class_="post-article").find_all("p")
+        self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
+
+        # Extract published date
+        date_selector=[
+            {"selector": "span.text-nowrap time",},  # Preferred - time tag with datetime attribute
+        ]
+        for selector in date_selector:
+            element=soup.select_one(selector["selector"])
+            print("element:",element)
+            if element:
+                date=element.get_text()
+                self.published_at=standardDateToTimestamp(date)
+                break
+        print("self.published_at:",self.published_at)
+
+        # Extract authors
+        date_selector=[
+            {"selector": "div.article_authors div.reporter-container"},
+        ]
+        for selector in date_selector:
+            element=soup.select_one(selector["selector"])
+            print("element:",element)
+            if element:
+                a_elements=element.find_all("a")
+                print("a_elements:",a_elements)
+                for a_element in a_elements:
+                    text=a_element.get_text()
+                    self.authors.append(text)
+                # # 1. First, try to extract the journalist name (primary author)
+                # journalist_match = re.search(r'中央社 記者([\u4e00-\u9fff]{2,3})', text)
+                # if journalist_match:
+                #     self.authors.append(journalist_match.group(1))
+                
+                # # 1. First, try to extract the journalist name (primary author)
+                # journalist_match = re.search(r'經濟日報 編譯([\u4e00-\u9fff]{2,3})', text)
+                # if journalist_match:
+                #     self.authors.append(journalist_match.group(1))
+
+        # Extract images
+        date_selector=[
+            {"selector": "figure img"},  # Preferred - time tag with datetime attribute
+        ]
+        for selector in date_selector:
+            element=soup.select_one(selector["selector"])
+            if element:
+                self.images.append(element["src"])
+                break
 
 class CTEE(News):
     def _fetch_and_parse(self):
@@ -1598,7 +2126,7 @@ class CTEE(News):
         print("🔗 嘗試連線至：", self.url)
 
         try:
-            driver.get(self.url)
+            driver.get(str(self.url))
             time.sleep(WAITING_TIME_FOR_JS_TO_FETCH_DATA)  # 等待 JS 載入
 
             html = driver.page_source
@@ -1608,13 +2136,119 @@ class CTEE(News):
             self.content = soup.find("article").find_all("p")
             self.content="\n".join(p.get_text(strip=True) for p in  self.content)
 
+            # Extract published date
+            date_selector=[
+                {"selector": "ul.news-credit",},  # Preferred - time tag with datetime attribute
+            ]
+            for selector in date_selector:
+                element=soup.select_one(selector["selector"])
+                print("element:",element)
+                if element:
+                    lists=element.find_all("li")
+                    date=lists[0].get_text()+lists[1].get_text()
+                    self.published_at=standardDateToTimestamp(date)
+                    break
+            print("self.published_at:",self.published_at)
+
+            # Extract authors
+            date_selector=[
+                {"selector": "span.name",}, 
+            ]
+            for selector in date_selector:
+                element=soup.select_one(selector["selector"])
+                print("element:",element)
+                if element:
+                    author=element.get_text().strip()
+                    print("author:",author)
+                    self.authors.append(author)
+                    break
+                    # # 1. First, try to extract the journalist name (primary author)
+                    # journalist_match = re.search(r'中央社 記者([\u4e00-\u9fff]{2,3})', text)
+                    # if journalist_match:
+                    #     self.authors.append(journalist_match.group(1))
+                    
+                    # # 1. First, try to extract the journalist name (primary author)
+                    # journalist_match = re.search(r'經濟日報 編譯([\u4e00-\u9fff]{2,3})', text)
+                    # if journalist_match:
+                    #     self.authors.append(journalist_match.group(1))
+
+            # Extract images
+            date_selector=[
+                {"selector": "figure img"},  # Preferred - time tag with datetime attribute
+            ]
+            for selector in date_selector:
+                element=soup.select_one(selector["selector"])
+                if element:
+                    self.images.append(element["src"])
+                    break
+
         except Exception as e:
             print("❌ 錯誤：", e)
 
         driver.quit()
 
 class MyPeopleVol(News):
-    pass
+    def _parse_article(self, soup):
+        # remove promo
+        [s.decompose() for s in soup.select('[class*="tdm-descr"]')]
+
+        # Extract title
+        self.title = soup.find("h1").get_text()
+
+        # Extract content + authors + images
+        p_elements = soup.find_all("p")
+        # content
+        filtered_p = [
+            p.get_text(strip=True)
+            for p in p_elements
+            if 'comment-form-cookies-consent' not in p.get('class', [])
+        ]
+        self.content = "\n".join(filtered_p)
+        text = self.content
+        print("self.content:",self.content)
+        # author
+        journalist_match = re.search(r'【記者([\u4e00-\u9fff]{2,3})', text)
+        if journalist_match:
+            self.authors.append(journalist_match.group(1))
+        journalist_match= re.search(r'【民眾網([\u4e00-\u9fff]{2,3})', text)
+        if journalist_match:
+            self.authors.append(journalist_match.group(1))
+        image_selectors = [
+            {"selector": "figure img"},  # Preferred
+            {
+                "selector": "div.td_block_wrap.tdb_single_content.tdi_50.td-pb-border-top"
+                            ".td_block_template_1.td-post-content.tagdiv-type img"
+            }
+        ]
+
+        for selector in image_selectors:
+            elements = soup.select(selector["selector"])  # Use select() to get all matches
+            print("elements:", elements)
+            if elements:
+                self.images.extend([img["src"] for img in elements if img.has_attr("src")])
+                break  # Stop after first successful selector
+
+        # Extract published date
+        date_selector=[
+            {"selector": "time",},  # Preferred - time tag with datetime attribute
+        ]
+        for selector in date_selector:
+            element=soup.select_one(selector["selector"])
+            if element:
+                date=element.get_text()
+                self.published_at=standardDateToTimestamp(date)
+                break
+        print("self.published_at:",self.published_at)
+
+        # Extract images
+        image_selector=[
+            {"selector": "figure.article-image img"},  # Preferred - time tag with datetime attribute
+        ]
+        for selector in image_selector:
+            element=soup.select_one(selector["selector"])
+            if element:
+                self.images.append(element["src"])
+                break
 
 class TaiwanTimes(News):
     def _fetch_and_parse(self):
@@ -1651,14 +2285,17 @@ class TaiwanTimes(News):
         print("🔗 嘗試連線至：", self.url)
 
         try:
-            driver.get(self.url)
-            time.sleep(WAITING_TIME_FOR_JS_TO_FETCH_DATA)  # 等待 JS 載入
+            driver.get(str(self.url))
+            time.sleep(1)  # 等待 JS 載入
 
             html = driver.page_source
             soup = BeautifulSoup(html, "html.parser")
 
-            title_tag = soup.find("meta", property="og:title")
-            self.title = title_tag["content"].strip() if title_tag else "No title found"
+            # Extract title
+            self.title = soup.find("div",class_="detail-header").get_text()
+            print("self.title:",self.title)
+
+            # Extract content
             content_div = soup.find("div", class_="detail-text logo-size main-text-color margin-bottom")
             if content_div:
                 # Get text with line breaks preserved
@@ -1666,6 +2303,34 @@ class TaiwanTimes(News):
                 self.content = "\n".join(texts)
             else:
                 self.content = "No content found"
+            print("self.content:",self.content)
+
+            # Extract published date
+            other_info_elements=soup.find_all("div",class_="otherinfo normal-size main-text-color")
+            date=other_info_elements[0]
+            if date:
+                self.published_at=standardDateToTimestamp(date.get_text())
+
+            # Extract author
+            author=other_info_elements[1].get_text()
+            if author:
+                journalist_match = re.search(r'記者([\u4e00-\u9fff]{2,3})', author)
+                if journalist_match:
+                    self.authors.append(journalist_match.group(1))
+
+            # Extract images
+            image_selector=[
+                {"selector": 'div[itemprop="articleBody"]'}, 
+                {"selector":"div.detail-wrapper"}
+            ]
+            for selector in image_selector:
+                element=soup.select_one(selector["selector"])
+                print("element:",element)
+                if element:
+                    images=element.find_all("img")
+                    for image in images:
+                        self.images.append(image["src"])
+                    break
 
         except Exception as e:
             print("❌ 錯誤：", e)
@@ -1680,10 +2345,111 @@ class ChinaDailyNews(News):
 
         # Extract content
         paragraphs = soup.find("div",class_="elementor-element elementor-element-b93c196 elementor-widget elementor-widget-theme-post-content")
-        self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
+        passage = "\n".join(p.get_text(strip=True) for p in paragraphs)
+        self.content=passage.strip()
+
+        # Extract date
+        date=soup.find("span",class_="elementor-icon-list-text elementor-post-info__item elementor-post-info__item--type-date").get_text()
+        self.published_at=standardDateToTimestamp(date)
+        
+        # Extract images
+        image_selectors=[
+            {"selector": 'figure'}, 
+        ]
+        for selector in image_selectors:
+                element=soup.select_one(selector["selector"])
+                print("element:",element)
+                if element:
+                    images=element.find_all("img")
+                    for image in images:
+                        self.images.append(image["src"])
+                    break
+        soup.find("self.images:",self.images)
+
+        # Extract author
+        div_element = soup.find("div", class_="elementor-element elementor-element-b93c196 elementor-widget elementor-widget-theme-post-content")
+        p_elements = div_element.find_all("p")
+        if p_elements:
+            # Get the full text from the first <p> tag
+            raw_text = p_elements[0].get_text()
+            
+            # Check which name format is present
+            if '記者' in raw_text and ('∕' in raw_text or '/' in raw_text):
+                # Case 1: "記者王超群∕台北報導"
+                # This removes the "記者" prefix, splits the string at the slash,
+                # and takes the first part (the name).
+                name = raw_text.replace('記者', '').split('∕')[0]
+            else:
+                # Case 2: "王崑義"
+                # The entire string is the name.
+                name = raw_text
+            self.authors.append(name.strip())
+
+        # for element in p_elements:
+        #     text=element.get_text()
+        #     print("text:",text)
+        #     journalist_match = re.search(r'記者([\u4e00-\u9fff]{2,3})', text)
+        #     if journalist_match:
+        #         print("journalist_match.group(1):",journalist_match.group(1))
+        #         self.authors.append(journalist_match.group(1))
+        
+
 
 class SETN(News):
-    pass
+    def _parse_article(self, soup):
+        # Extract title
+        title_tag = soup.find("meta", property="og:title")
+        self.title = title_tag["content"].strip() if title_tag else "No title found"
+
+        # Extract content
+        paragraphs = soup.find("article").find_all("p")
+        passage = "\n".join(
+        p.get_text(strip=True) 
+        for i, p in enumerate(paragraphs)  # Add index with enumerate
+            if i > 0  # Skip first paragraph (index 0)
+            and "text-align:center" not in p.get("style", "").replace(" ", "") 
+            and "text-align:center;" not in p.get("style", "").replace(" ", "")
+        )
+        self.content=passage.strip()
+
+        # Extract date
+        print(soup.find("div",class_="page-title-text"))
+        date=soup.find("time",class_="page_date").get_text()
+        self.published_at=standardDateToTimestamp(date)
+
+        # Extract author
+        div_element = soup.find("article")
+        p_elements = div_element.find_all("p")
+        if p_elements:
+            # Get the full text from the first <p> tag
+            raw_text = p_elements[0].get_text()
+            print("raw_text:",raw_text)
+            # Check which name format is present
+            if '記者' in raw_text:
+                # Case 1: "記者王超群∕台北報導"
+                # This removes the "記者" prefix, splits the string at the slash,
+                # and takes the first part (the name).
+                name = re.split(r'[∕／/]', raw_text.replace('記者', ''))[0]
+            else:
+                # Case 2: "王崑義"
+                # The entire string is the name.
+                name = raw_text
+            print("name:",name)
+            self.authors.append(name.strip())
+        
+        # Extract images
+        image_selectors=[
+            {"selector": 'article'}, 
+        ]
+        for selector in image_selectors:
+                element=soup.select_one(selector["selector"])
+                print("element:",element)
+                if element:
+                    images=element.find_all("img")
+                    for image in images:
+                        self.images.append(image["src"])
+                    break
+        soup.find("self.images:",self.images)
 
 class NextAppleNews(News):
     def _parse_article(self, soup):
@@ -1695,22 +2461,218 @@ class NextAppleNews(News):
         paragraphs = soup.find("div",class_="post-content").find_all("p", recursive=False)
         self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
 
-class MirrorMedia(News):
+        # Extract published date
+        article=soup.find("div",class_="infScroll")
+        if article:
+            date=article.find("time").get_text()
+            self.published_at=standardDateToTimestamp(date)
+
+        # Extract author
+        info_a=soup.find_all("a",style="color: #0275d8;")
+        print("info_a:",info_a)
+        if info_a and info_a[1]:
+            author=info_a[1].get_text()
+            self.authors.append(author)
+        # print("info:",info)
+
+        # Extract images
+        content_div=soup.find("div",class_="infScroll")
+        if content_div:
+            figure=content_div.find("figure")
+            if figure:
+                img=figure.find("img")
+                if img:
+                    self.images.append(img['data-src'])
+        print("self.images:",self.images)
+
+class TTV(News):
     def _parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
 
         # Extract content
-        paragraphs = soup.find("section", class_="article-content__Wrapper-sc-a27b9208-0 hWzglx").find_all("span")
-        seen = set()
-        unique_paragraphs = []
-        for span in paragraphs:
-            text = span.get_text(strip=True)
-            if text not in seen:
-                seen.add(text)
-                unique_paragraphs.append(text)
-        self.content = "\n".join(unique_paragraphs)
+        paragraphs = soup.find("div",id="newscontent").find_all("p", recursive=False)
+        self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
+
+        # Extract published date
+        date_time=soup.find("li",class_="date time")
+        if date_time:
+            date=date_time.get_text()
+            self.published_at=standardDateToTimestamp(date)
+
+        # Extract author
+        content_div=soup.find("div",id="newscontent")
+        print("content_div:",content_div)
+        if content_div:
+            p=content_div.find_all("p")
+            for text in p:
+                match = re.search(r'責任編輯／(.*)', text.get_text())  # Capture everything after ／
+                if match is None:
+                    match = re.search(r'責任編輯/(.*)', text.get_text())  # Capture everything after ／
+                if match:
+                    name = match.group(1).strip()  # Get the captured group and remove whitespace
+                    self.authors.append(name)
+                else:
+                    print("No match found")
+            
+        # print("info:",info)
+
+        # Extract images
+        content_div=soup.find("div",class_="article-body")
+        if content_div:
+            figure=content_div.find("figure",class_="cover img")
+            print("figure:",figure)
+            if figure:
+                img=figure.find("img")
+                if img:
+                    self.images.append(img['src'])
+
+        content_div=soup.find("div",id="newscontent")
+        if content_div:
+                images=content_div.find_all("img")
+                if images:
+                    for image in images:
+                        image=image["src"]
+                        self.images.append(image)
+        print("self.images:",self.images)
+                
+
+class MirrorMedia(News):
+    def _fetch_and_parse(self):
+        self._parse_article()
+
+    def _parse_article(self):
+        # 使用非 headless 模式（可視化）
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+
+        driver = webdriver.Chrome(options=options)
+
+        # 加上防偵測腳本
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": """
+                Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+                });
+            """
+        })
+        driver.execute_script("""
+            let modals = document.querySelectorAll('.popup, .modal, .ad, .overlay, .vjs-modal');
+            modals.forEach(el => el.remove());
+        """)
+
+        # 建議測試短網址，避免過長導致連線問題
+        print("🔗 嘗試連線至：", self.url)
+
+        try:
+            driver.get(str(self.url))
+            time.sleep(0)  # Initial load
+
+            # Get page height
+            total_height = driver.execute_script("return document.body.scrollHeight")
+
+            # Human-like scrolling (e.g., 300px at a time)
+            scroll_step = 300
+            current_position = 0
+
+            while current_position < total_height:
+                # Scroll down a bit
+                driver.execute_script(f"window.scrollTo(0, {current_position});")
+                current_position += scroll_step
+                time.sleep(0.001)  # Adjust based on network speed
+
+                # Update total height (in case new content loads)
+                new_height = driver.execute_script("return document.body.scrollHeight")
+                if new_height > total_height:
+                    total_height = new_height
+            time.sleep(2)  # 等待 JS 載入
+            html = driver.page_source
+            soup = BeautifulSoup(html, "html.parser")
+            # Extract title
+            title_tag = soup.find("meta", property="og:title")
+            self.title = title_tag["content"].strip() if title_tag else "No title found"
+
+            # Extract content
+            container=None
+            tag=None
+            if soup.find("section",class_="article-content__Wrapper-sc-a27b9208-0 hWzglx"):
+                container=soup.find("section",class_="article-content__Wrapper-sc-a27b9208-0 hWzglx")
+                tag="div"
+            if container==None and soup.find("section",class_="external-article-content__Wrapper-sc-8f3f1b36-0 cWifPf"):
+                container=soup.find("section",class_="external-article-content__Wrapper-sc-8f3f1b36-0 cWifPf")
+                self.origin=soup.find("div",class_="external-article-info__ExternalCredit-sc-83f18676-4 ryMAg").find("span").get_text()
+                tag="p"
+            print("container:",container)
+            all_unique_texts = []
+            seen = set()
+            if container:
+                for element in container.find_all(tag):
+                        text = element.get_text(strip=True)
+                        if text and text not in seen:  # Check for non-empty and unique
+                            seen.add(text)
+                            all_unique_texts.append(text)
+
+            self.content = "\n".join(all_unique_texts)
+
+            # Extract published date
+            div_element=soup.find("div",class_="normal__Date-sc-3b14d180-5 huFyWo")
+            if div_element is None:
+                div_element=soup.find("div",class_="external-normal-style__Date-sc-f5353e0a-5 cOlbJt")
+            print("p_element:",div_element)
+            if div_element:
+                date=div_element.get_text().replace("臺北時間","")
+                print("date:",date)
+                self.published_at=standardDateToTimestamp(date)
+
+            # Extract author
+            section=soup.find("section",class_="credits__CreditsWrapper-sc-93b3ab5-0 gReTcs normal-credits")
+            print("section:",section)
+            if section:
+                author_ul=section.find("ul")
+                if author_ul:
+                    self.authors.append(author_ul.get_text().strip())
+
+            # Extract images
+            # native articles
+            content_div=soup.find("article")
+            if content_div:
+                extended_reading=content_div.find("ul",class_="related-article-list__ArticleWrapper-sc-55c1bac2-2 iYrpEr")
+                if extended_reading:
+                    extended_reading.decompose()
+                images=content_div.find_all("img",class_="readr-media-react-image")
+                print("images:",images)
+                for image in images:
+                    print(image["src"])
+                    self.images.append(image["src"])
+            # non-native articles
+            if content_div is None:
+                content_div=soup.find_all("p",style="text-align: center;")
+                print("content_div:",content_div)
+                if content_div:
+                    for content in content_div:
+                        image=content.find("img")
+                        if image:
+                            self.images.append(image["src"])
+            print("content_div:",content_div)
+            print("self.title:",self.title)
+            print("self.content:",self.content)
+            print("self.images:",self.images)
+            print("self.authors:",self.authors)
+            print("self.published_at:",self.published_at)
+            print("self.origin:",self.origin)
+            
+        except Exception as e:
+            print("❌ 錯誤：", e)
+
+        driver.quit()
 
 class NowNews(News):
     def _parse_article(self, soup):
@@ -1730,8 +2692,54 @@ class NowNews(News):
         else:
             self.content = "No content found"
 
+        # Extract published date
+        div_element=soup.find("span",{"aria-label": "出版時間"})
+        print("p_element:",div_element)
+        if div_element:
+            date=div_element.get_text()
+            print("date:",date)
+            self.published_at=standardDateToTimestamp(date)
+
+        # Extract author
+        author_a=soup.find("a",{"data-sec":"reporter"})
+        if author_a:
+            self.authors.append(author_a.get_text().strip())
+
+        # Extract images
+        content_div=soup.find("div",class_="containerBlk mb-1")
+        if content_div:
+            images=content_div.find_all("figure")
+            print("images:",images)
+            for image in images:
+                self.images.append(image.find("img")["src"])
+
 class StormMedia(News):
-    pass
+    def _parse_article(self, soup):
+        # Extract title
+        title_tag = soup.find("meta", property="og:title")
+        self.title = title_tag["content"].strip() if title_tag else "No title found"
+
+        # Extract content
+        paragraphs = soup.find("article").find_all("p")
+        self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
+
+        # Extract published date
+        div_element=soup.find("div",class_="flex shrink-0 items-center text-smg-typography-caption-12-r text-smg-gray-700 smg-desktop:text-smg-typography-body-16-r")
+        print("p_element:",div_element)
+        if div_element:
+            date=div_element.get_text()
+            print("date:",date)
+            self.published_at=standardDateToTimestamp(date)
+
+        # Extract author
+        self.authors.append(soup.find("a",class_="generalLink text-smg-typography-caption-14-r text-smg-red-primary hover:underline").get_text().strip())
+
+        # Extract images
+        content_div=soup.find("div",class_="coverImg")
+        if content_div:
+            images=content_div.find_all("img")
+            for image in images:
+                self.images.append(image["src"])
 
 class TVBS(News):
     def _parse_article(self, soup):
@@ -1760,6 +2768,35 @@ class TVBS(News):
         else:
             self.content = "No content found"
 
+        # Extract published date+authors
+        article_info = soup.find("div", class_="author")
+        if article_info:
+            editor_links = article_info.find_all("a")
+            for a in editor_links:
+                self.authors.append(a.text)
+            
+            # Extract published date (the first time after "發佈時間：")
+            text_parts = article_info.get_text().split("發佈時間：")
+            if len(text_parts) > 1:
+                published_date = text_parts[1].split()  # Gets "2025/07/06"
+                published_at=published_date[0]+" "+published_date[1]
+                self.published_at=standardDateToTimestamp(published_at)
+            
+            print("self.authors:", self.authors)
+            print("Published At:", published_at)
+        
+        # Extract images
+        print("article_new:",soup.find("div",class_="article_new"))
+        content_div=soup.find("div",class_="article_new")
+        if content_div:
+            image_div=content_div.find("div",class_="img_box")
+            print("image_div:",image_div)
+            if image_div:
+                image=image_div.find("img")["src"]
+                self.images.append(image)
+        print("image:",self.images)
+
+
 class EBCNews(News):
     def _parse_article(self, soup):
         # Extract title
@@ -1777,8 +2814,43 @@ class EBCNews(News):
         self.content = "\n".join(
             p.get_text(strip=True)
             for p in paragraphs
-            if p.get_text(strip=True)  # 過濾空段落
+            if p.get_text(strip=True) and p.get_text()!="★延伸閱讀★"  # 過濾空段落
         )
+        print("self.content:",self.content)
+
+        # Extract date
+        date_div=soup.find("div",class_="article_date")
+        if date_div:
+            date=date_div.get_text()
+            self.published_at=standardDateToTimestamp(date)
+        if date_div is None:
+            date_div=soup.find("div",class_="article_info_date")
+            print("date_div:",date_div)
+            if date_div:
+                date=" ".join(p.get_text(strip=True) for p in date_div.find_all("div"))
+                self.published_at=standardDateToTimestamp(date)
+            
+        # Extract images
+        content_div=soup.find("div",class_="article_container")
+        if content_div:
+            image_div=content_div.find("div",class_="img")
+            print("image_div:",image_div)
+            if image_div:
+                image=image_div.find("img")
+                print("image:",image)
+                if image:
+                    self.images.append(image["src"])
+        
+        
+        # Extract authors
+        editor_div=soup.find("a",class_="article_info_editor")
+        if editor_div is None:
+            editor_div=soup.find("div",class_="article_info_editor")
+        print("editor_div:",editor_div)
+        if editor_div:
+            editor=editor_div.get_text()
+            editor=editor.replace("實習編輯","").replace("記者","").replace("責任編輯","").strip()
+            self.authors.append(editor)
 
 class ETtoday(News):
     def _parse_article(self, soup):
@@ -1851,6 +2923,57 @@ class NewTalk(News):
         paragraphs = soup.find("div",class_="articleBody clearfix").find_all("p")
         self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
 
+        # Extract published date
+        p_element=soup.find("p",class_="publish")
+        print("p_element:",p_element)
+        if p_element:
+            text=p_element.find("span").get_text()
+            print("text:",text)
+            date=text.replace("發布","").strip()
+            self.published_at=standardDateToTimestamp(date)
+
+        # Extract author
+        self.authors.append(soup.find("a",class_="author").get_text().strip())
+
+        # Extract images
+        content_div=soup.find("div",class_="news_content")
+        if content_div:
+            images=content_div.find_all("img")
+            for image in images:
+                self.images.append(image["src"])
+
+class CTINews(News):
+    def _parse_article(self, soup):
+        # Extract title
+        title_tag = soup.find("meta", property="og:title")
+        self.title = title_tag["content"].strip() if title_tag else "No title found"
+
+        # Extract content
+        paragraphs = soup.find("div",class_="article-content").find_all("p")
+        self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
+
+        # Extract published date+author
+        article_info=soup.find("div",class_="article-info")
+        print("article_info:",article_info)
+        if article_info:
+            info=article_info.find_all("a")
+            date=info[0].get_text()
+            author=info[1].get_text()
+            # date=text.replace("發布","").strip()
+            self.published_at=standardDateToTimestamp(date)
+            self.authors.append(author)
+
+            author=info[1]
+            print("info[0]:",info[0])
+            print("info[1]:",info[1])
+
+        # Extract images
+        content_div=soup.find("div",class_="article-content")
+        if content_div:
+            images=content_div.find_all("img")
+            for image in images:
+                self.images.append(image["src"])
+
 class FTV(News):
     def _fetch_and_parse(self):
         self._parse_article()
@@ -1886,8 +3009,8 @@ class FTV(News):
         print("🔗 嘗試連線至：", self.url)
 
         try:
-            driver.get(self.url)
-            time.sleep(WAITING_TIME_FOR_JS_TO_FETCH_DATA)  # 等待 JS 載入
+            driver.get(str(self.url))
+            time.sleep(2)  # 等待 JS 載入
 
             html = driver.page_source
             soup = BeautifulSoup(html, "html.parser")
@@ -1897,14 +3020,47 @@ class FTV(News):
 
             content_div = soup.find("div", id="newscontent")
             print("content_div:",content_div)
-            for promo in content_div.find_all("strong"):
-                promo.decompose()
             if content_div:
-                # Get text with line breaks preserved
-                texts = [line.strip() for line in content_div.stripped_strings]
-                self.content = "\n".join(texts)
-            else:
-                self.content = "No content found"
+                for promo in content_div.find_all("strong"):
+                    promo.decompose()
+                for captions in content_div.find_all("figcaption"):
+                    captions.decompose()
+                if content_div:
+                    # Get text with line breaks preserved
+                    texts = [line.strip() for line in content_div.stripped_strings]
+                    self.content = "\n".join(texts)
+                else:
+                    self.content = "No content found"
+
+            # Extract published date
+            date_span=soup.find("span",class_="date")
+            if date_span:
+                date=date_span.get_text().replace("發佈時間：","").strip()
+                self.published_at=standardDateToTimestamp(date)
+                print("date_span:",date_span)
+
+            # Extract images
+            image_div=soup.find("div",class_="fixed_img")
+            if image_div:
+                image=image_div.find("img")
+                if image:
+                    self.images.append(image["src"])
+
+            # Extract author
+            preface=soup.find("div",id="preface")
+            print("preface:",preface)
+            if preface:
+                p_element=preface.find('p')
+                if p_element:
+                    author=p_element.get_text()
+                    match = re.search(r'／(.*?)報導', author)
+                    if match:
+                        name = match.group(1)
+                        if name!="綜合": 
+                            self.authors.append(name)
+                        print(name)
+                    else:
+                        print("No match found")
 
         except Exception as e:
             print("❌ 錯誤：", e)

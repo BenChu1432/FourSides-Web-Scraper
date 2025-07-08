@@ -41,7 +41,9 @@ class NewsRequest(BaseModel):
     media: str
 
 class NewsResponse(BaseModel):
+    url: Optional[HttpUrl]
     title:  Optional[str]
+    origin: Optional[str]
     content:  Optional[str]
     published_at: Optional[int] 
     authors: List[str] = []
