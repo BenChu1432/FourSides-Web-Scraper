@@ -1,6 +1,7 @@
 import re
 from typing import Optional
 from urllib.parse import urlparse
+import concurrent
 import requests
 from bs4 import BeautifulSoup
 from abc import ABC, abstractmethod
@@ -8,28 +9,36 @@ from bs4 import BeautifulSoup
 from typing import List
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
 import time
 import undetected_chromedriver 
 import datetime
 # from translation import translate_text
 from util.timeUtil import HKEJDateToTimestamp, IntiumChineseDateToTimestamp, NowTVDateToTimestamp, RTHKChineseDateToTimestamp, SCMPDateToTimestamp, SingTaoDailyChineseDateToTimestamp, TheCourtNewsDateToTimestamp, standardChineseDatetoTimestamp, standardDateToTimestamp
 from webScraper.simplifiedChineseToTraditionalChinese import simplifiedChineseToTraditionalChinese
+import concurrent.futures
+import time
 
 # Constants
-WAITING_TIME_FOR_JS_TO_FETCH_DATA=0
+WAITING_TIME_FOR_JS_TO_FETCH_DATA=2
 
 
 class News(ABC):
     title: Optional[str]
     content: Optional[str]
     published_at: Optional[int]
-    origin: Optional[int]
     authors: List[str]
     images: List[str]
     origin: Optional[str]
+    max_workers: int
+    max_pages: int
 
     def __init__(self, url=None):
         self.url = url
+        self.max_workers=5
+        self.max_pages=1
         self.title = None
         self.content = None
         self.published_at=None
@@ -275,6 +284,53 @@ class SCMP(News):
             self.content = "No content found"
 
 class ChineseNewYorkTimes (News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=1
+        
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        latest_news_url = "https://m.cn.nytimes.com/zh-hant/"
+        print(f"Loading page: {latest_news_url}")
+
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+        driver = webdriver.Chrome(options=options)
+
+        all_urls = []
+
+        try:
+            driver.get(latest_news_url)
+            time.sleep(2)  # Wait for initial load
+
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            articles = soup.select('ol.article-list li')
+            for article in articles:
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        full_url = a_tag['href']
+                        all_urls.append(full_url)
+                        # if href.startswith("/news/detail/"):
+                        #     full_url = base_url + href
+                        #     print("✅ full_url:", full_url)
+                        #     all_urls.append(full_url)
+
+            print("all_urls:",all_urls)
+
+        finally:
+            driver.quit()
+
+        print(f"Total articles found: {len(all_urls)}")
+        return all_urls
+
     def _fetch_and_parse(self):
         self._parse_article()
 
@@ -351,6 +407,36 @@ class ChineseNewYorkTimes (News):
         driver.quit()
 
 class DeutscheWelle (News):
+    
+    def get_article_urls(self):
+        all_urls=[]
+        latest_news_url = "https://rss.dw.com/rdf/rss-chi-all"
+        headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.5',
+                        'Referer': 'https://google.com/',
+                        'Connection': 'keep-alive',
+                        'DNT': '1',
+                        'Upgrade-Insecure-Requests': '1',
+                    }
+        response=requests.get(latest_news_url,headers=headers)
+        xml=response.text
+        print("xml:",xml)
+        soup=BeautifulSoup(xml, "xml")
+        articles=soup.find_all("item")
+        for article in articles:
+            link=article.find("link")
+            print("link:",link)
+            if link:
+                url=link.get_text()
+                print("url:",url)
+                all_urls.append(url)
+                
+        
+        print(f"Total articles found: {len(all_urls)}")
+        return all_urls
+    
     def _fetch_and_parse(self):
         self._parse_article()
 
@@ -693,6 +779,62 @@ class InitiumMedia(News):
 
 
 class YahooNews(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=3
+        
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        latest_news_url = "https://tw.news.yahoo.com/tw.realnews.yahoo.com--%E6%89%80%E6%9C%89%E9%A1%9E%E5%88%A5/archive"
+        base_url = "https://tw.news.yahoo.com"
+        print(f"Loading page: {latest_news_url}")
+
+        options = Options()
+        # options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+        driver = webdriver.Chrome(options=options)
+
+        all_urls = []
+
+        try:
+            driver.get(latest_news_url)
+            # Scroll to the bottom repeatedly to load lazy content
+            scroll_step = 1000
+            total_scrolls = 5*max_pages  # You can adjust this
+
+            for i in range(total_scrolls):
+                scroll_position = scroll_step * (i + 1)
+                driver.execute_script(f"window.scrollTo(0, {scroll_position});")
+                time.sleep(0.3)  # Let content load
+
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            articles = soup.select('ul#stream-container-scroll-template li.StreamMegaItem')
+            print("articles:",articles)
+            print(f"Total articles found: {len(articles)}")
+
+            for article in articles:
+                a_tag = article.find("a")
+                href=a_tag['href']
+                print("href:",href)
+                if href:
+                    full_url = base_url + href if href.startswith("/") else href
+                    if full_url not in all_urls:
+                        all_urls.append(full_url)
+
+        finally:
+            driver.quit()
+
+
+        print(f"Total articles found: {len(all_urls)}")
+        return all_urls
+    
     def _parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
@@ -890,6 +1032,41 @@ class NowTV(News):
         # print("self.authors:", self.authors)
 
 class ChineseBBC(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=1
+        
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        all_urls=[]
+        latest_news_url = "https://feeds.bbci.co.uk/zhongwen/trad/rss.xml"
+        headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.5',
+                        'Referer': 'https://google.com/',
+                        'Connection': 'keep-alive',
+                        'DNT': '1',
+                        'Upgrade-Insecure-Requests': '1',
+                    }
+        response=requests.get(latest_news_url,headers=headers)
+        xml=response.text
+        print("xml:",xml)
+        soup=BeautifulSoup(xml, "xml")
+        articles=soup.find_all("item")
+        for article in articles:
+            link=article.find("link")
+            print("link:",link)
+            if link:
+                url=link.get_text()
+                print("url:",url)
+                all_urls.append(url)
+                
+        
+        print(f"Total articles found: {len(all_urls)}")
+        return all_urls
+    
     def _parse_article(self, soup):
         # Extract title
         self.title = soup.find("h1").get_text()
@@ -928,6 +1105,45 @@ class ChineseBBC(News):
                 self.images.append(image)
 
 class VOC(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=1
+        
+    def get_article_urls(self):
+        latest_news_url = "https://www.voachinese.com/z/1739"
+        base_url="https://www.voachinese.com/"
+        print(f"Loading page: {latest_news_url}")
+
+        all_urls=[]
+        headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.5',
+                        'Referer': 'https://google.com/',
+                        'Connection': 'keep-alive',
+                        'DNT': '1',
+                        'Upgrade-Insecure-Requests': '1',
+                    }
+        response=requests.get(latest_news_url,headers=headers)
+        html=response.text
+        # print("html:",html)
+        soup = BeautifulSoup(html, "html.parser")
+        articles = soup.select('ul.archive-list li')
+        # print("articles:",articles)
+        for article in articles:
+                a_tag = article.select_one("a")
+                print("a_tag:",a_tag)
+                if a_tag:
+                    href = a_tag['href']
+                    if href.startswith("/a/"):
+                        full_url = base_url + href
+                        print("✅ full_url:", full_url)
+                        all_urls.append(full_url)
+
+
+        print(f"Total articles found: {len(all_urls)}")
+        return all_urls
+    
     def _parse_article(self, soup):
         # Extract title
         title = soup.find("h1").get_text()
@@ -1325,7 +1541,7 @@ class TheWitness(News):
 
     def _parse_article(self):
         options = Options()
-        # options.add_argument("--headless")
+        options.add_argument("--headless")
         options.add_argument("--disable-gpu")
         options.add_argument("--no-sandbox")
         options.add_argument("--window-size=1280,800")
@@ -1522,6 +1738,70 @@ class CCTV(News):
 
 # Taiwanese News
 class UnitedDailyNews(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=1
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        latest_news_url = "https://money.udn.com/rank/newest/1001/0/1?from=edn_navibar"
+        base_url="https://money.udn.com"
+        print(f"Loading page: {latest_news_url}")
+
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+        driver = webdriver.Chrome(options=options)
+
+        all_urls = []
+
+        try:
+            driver.get(latest_news_url)
+            time.sleep(2)  # Wait for initial load
+
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            articles = soup.select("ul.tab-content__list li")
+            for article in articles:
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        full_url = a_tag['href']
+                        if full_url.startswith("/"):  # Ensure it's a full URL
+                            full_url = base_url + full_url
+                        if full_url not in all_urls:
+                            all_urls.append(full_url)
+
+
+            for page in range(max_pages-1):
+                # Scroll to bottom
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(2)  # Wait for articles to load after scroll
+
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select("ul.tab-content__list li")
+
+                print(f"Page {page+1}: Found {len(articles)} articles")
+
+                for article in articles:
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        full_url = a_tag['href']
+                        if full_url.startswith("/"):  # Ensure it's a full URL
+                            full_url = base_url + full_url
+                        if full_url not in all_urls:
+                            all_urls.append(full_url)
+
+        finally:
+            driver.quit()
+
+        print(f"Total articles found: {len(all_urls)}")
+        return all_urls
+        
     def _parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
@@ -1546,6 +1826,7 @@ class UnitedDailyNews(News):
         # Extract authors (no authors)
         author_selectors = [
             {"selector": "div.article-section__info span.article-section__author"},
+            {"selector":"div.article-body__info span"},
             {"selector": "div.article-content__subinfo--authors.story_bady_info_author span:nth-of-type(2)"},
             {"selector": "div.article-content__subinfo--authors.story_bady_info_author span.article-content__author"},
             {"selector": "section.authors span.article-content__author"},
@@ -1564,20 +1845,33 @@ class UnitedDailyNews(News):
     
         for selector in author_selectors:
             element = soup.select_one(selector["selector"])
+            print("element:",element)
             if element:
                 author_text = element.get_text(strip=True)
                 print("author_text:",author_text)
-                print("author_text:",author_text)
                 if author_text and author_text!="":
                     # Clean up the author text
-                    author_text = author_text.replace("綜合外電","").replace("編譯","").replace("聯合報", "").replace("經濟日報","").replace("聯合新聞網","").replace("台北","").replace("台中","").replace("記者","").replace("即時報導","").replace("udn STYLE", "").replace("撰文","").replace("／", "").strip()
-                    print("author_text:", author_text)
+                    match = re.search(r'記者([\u4e00-\u9fff]{2,3})', author_text)
+                    if match:
+                        author_text = match.group(1).strip()
+
+                    if match is None:
+                        match = re.search(r'編譯([\u4e00-\u9fff]{2,3})', author_text)
+                        if match:
+                            author_text = match.group(1).strip()
+
+                    print("author_text:",author_text)
+                    # author_text = author_text.replace("綜合外電","").replace("編譯","").replace("聯合報", "").replace("經濟日報","").replace("聯合新聞網","").replace("台北","").replace("台中","").replace("記者","").replace("即時報導","").replace("udn STYLE", "").replace("撰文","").replace("／", "").strip()
+                    # print("author_text:", author_text)
                     self.authors.append(author_text)
+                    break
         print("self.authors:", self.authors)
 
         # Extract published date
         date_selectors=[
             {"selector": "div.article-section__info time", "attribute": "datetime"},  # Preferred - time tag with datetime attribute
+            {"selector":"time.article-body__time"},
+            {"selector":"time.article-content__time"},
             {"selector": "span.article-content__subinfo--time", "text": True},
             {"selector": "time.article-content__time", "text": True},
             {"selector":"div.story_bady_info_author","process": lambda el: next(
@@ -1611,105 +1905,82 @@ class UnitedDailyNews(News):
 
 
 class LibertyTimesNet(News):
-    #  def _fetch_and_parse(self):
-    #     self._parse_article()
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=1
 
-    # def _parse_article(self):
-    #     # 使用非 headless 模式（可視化）
-    #     options = undetected_chromedriver.ChromeOptions()
-    #     options.add_argument("--headless")
-    #     options.add_argument("--disable-gpu")
-    #     options.add_argument("--no-sandbox")
-    #     options.add_argument("--window-size=1280,800")
-    #     options.add_argument("--disable-blink-features=AutomationControlled")
-    #     options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    #     options.add_experimental_option("useAutomationExtension", False)
-    #     options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        latest_news_url = "https://news.ltn.com.tw/list/breakingnews"
+        print(f"Loading page: {latest_news_url}")
 
-    #     driver = webdriver.Chrome(options=options)
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+        driver = webdriver.Chrome(options=options)
 
-    #     # 加上防偵測腳本
-    #     driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-    #         "source": """
-    #             Object.defineProperty(navigator, 'webdriver', {
-    #             get: () => undefined
-    #             });
-    #         """
-    #     })
-    #     driver.execute_script("""
-    #         let modals = document.querySelectorAll('.popup, .modal, .ad, .overlay, .vjs-modal');
-    #         modals.forEach(el => el.remove());
-    #     """)
+        all_urls = []
 
-    #     # 建議測試短網址，避免過長導致連線問題
-    #     print("🔗 嘗試連線至：", self.url)
+        try:
+            driver.get(latest_news_url)
+            time.sleep(2)  # Wait for initial load
 
-    #     try:
-    #         driver.get(str(self.url))
-    #         time.sleep(WAITING_TIME_FOR_JS_TO_FETCH_DATA)  # 等待 JS 載入
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            articles = soup.select("ul.list li")
+            for article in articles:
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        full_url = a_tag['href']
+                        if full_url.startswith("/"):  # Ensure it's a full URL
+                            full_url = "https://news.ltn.com.tw" + full_url
+                        if full_url not in all_urls:
+                            all_urls.append(full_url)
 
-    #         html = driver.page_source
-    #         soup = BeautifulSoup(html, "html.parser")
-    #         # Extract title
-    #         title_tag = soup.find("meta", property="og:title")
-    #         self.title = title_tag["content"].strip() if title_tag else "No title found"
 
-    #         # Extract content
-    #         content_selectors=[
-    #             {"selector": "div.whitecon.article[data-page='1']"},
-    #             {"selector": "div.text",},  # Preferred - time tag with datetime attribute
-    #         ]
-    #         for selector in content_selectors:
-    #             element=soup.select_one(selector["selector"])
-    #             if element:
-    #                 appPromo=element.find("p",class_="appE1121")
-    #                 captions=element.find_all("span",class_="ph_d")
-    #                 if appPromo:
-    #                     appPromo.decompose()
-    #                 if captions:
-    #                     for caption in captions:
-    #                         caption.decompose()
-    #                 content_div=element.find_all(["p","h"])   
-    #                 self.content = "\n".join(p.get_text(strip=True) for p in content_div)
-    #                 break
+            for page in range(max_pages-1):
+                # Scroll to bottom
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(2)  # Wait for articles to load after scroll
 
-    #         # Extract published date
-    #         date_selector=[
-    #             {"selector": "div.article div.function","text": True},  # Preferred - time tag with datetime attribute
-    #             {"selector": "span.time","text": True}
-    #         ]
-    #         for selector in date_selector:
-    #             element=soup.select_one(selector["selector"])
-    #             print("element:",element)
-    #             date=element.get_text()
-    #             self.published_at=standardDateToTimestamp(date)
-    #         print("self.published_at:",self.published_at)
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select("ul.list li")
 
-    #         # Extract images
-    #         images=soup.find("div",class_="text").find_all("img")
-    #         for image in images:
-    #             self.images.append(image["data-src"])
+                print(f"Page {page+1}: Found {len(articles)} articles")
+
+                for article in articles:
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        full_url = a_tag['href']
+                        if full_url.startswith("/"):  # Ensure it's a full URL
+                            full_url = "https://news.ltn.com.tw" + full_url
+                        if full_url not in all_urls:
+                            all_urls.append(full_url)
+
+        finally:
+            driver.quit()
+
+        print(f"Total articles found: {len(all_urls)}")
+        return all_urls
     
-    #     except Exception as e:
-    #         print("❌ 錯誤：", e)
-        
-    #     driver.quit()
-     def _parse_article(self, soup):
+    def _parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
 
         # Extract content
         content_selectors=[
-            # {"selector":"div.article"},
             {"selector": "div.whitecon.article[data-page='1']"},
-            {"selector": "div.text",},  # Preferred - time tag with datetime attribute
+            {"selector":"div[data-desc='內文'] div.text"},
+            {"selector": "div.text"},  # Preferred - time tag with datetime attribute
         ]
         for selector in content_selectors:
             element=soup.select_one(selector["selector"])
-            print("element:",element)
-            # if element and len(element)>1:
-            #     element=element[0]
             if element:
                 appPromo=element.find("p",class_="appE1121")
                 captions=element.find_all("span",class_="ph_d")
@@ -1725,7 +1996,8 @@ class LibertyTimesNet(News):
         # Extract published date
         date_selector=[
             {"selector": "div.whitecon.article[data-page='1'] span.time",},  # Preferred - time tag with datetime attribute
-            {"selector": "span.time","text": True}
+            {"selector": "div[data-desc='內文'] span.time"},
+            {"selector": "span.time"}
         ]
         for selector in date_selector:
             element=soup.select_one(selector["selector"])
@@ -1733,7 +2005,7 @@ class LibertyTimesNet(News):
                 date=element.get_text()
                 self.published_at=standardDateToTimestamp(date)
                 break
-        print("self.published_at:",self.published_at)
+        # print("self.published_at:",self.published_at)
 
         # Extract images
         image_selectors=[
@@ -1788,55 +2060,70 @@ class LibertyTimesNet(News):
 
 
 class ChinaTimes(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_workers=5
+        self.max_pages=5
+
     def _fetch_and_parse(self):
         self._parse_article()
 
-    def get_article_urls(self, max_pages=5):
-        base_url = "https://www.chinatimes.com/realtimenews/?chdtv"
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        def fetch_page_articles(page):
+            latest_news_url= "https://www.chinatimes.com/realtimenews/?chdtv"
+            base_url = "https://www.chinatimes.com"
+            url = f"{base_url}/?page={page}"
+            print(f"Loading page: {url}")
 
-        # Set up headless Chrome
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-        driver = webdriver.Chrome(options=options)
+            # Each thread must create its own driver
+            options = Options()
+            options.add_argument("--headless")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--window-size=1280,800")
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            options.add_experimental_option("useAutomationExtension", False)
+            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+            driver = webdriver.Chrome(options=options)
 
-        all_urls = []
-
-        try:
-            for page in range(1, max_pages + 1):
-                url = f"{base_url}/?page={page}"
-
-                print(f"Loading page: {url}")
-                driver.get(url)
-                time.sleep(2)  # wait for JS to load
+            try:
+                driver.get(latest_news_url)
+                time.sleep(2)  # wait for JS
 
                 soup = BeautifulSoup(driver.page_source, "html.parser")
-
                 articles = soup.select("ul.vertical-list li")
-                if not articles:
-                    print("No more articles.")
-                    break
 
-                stop = False
+                if not articles:
+                    print(f"No articles found on page {page}.")
+                    return []
+
+                page_urls = []
                 for article in articles:
                     a_tag = article.select_one("h3.title a")
                     if a_tag:
                         href = a_tag['href']
-                        url="https://www.chinatimes.com"+href
-                        print("full_url:",url)
-                        all_urls.append(url)
+                        full_url = base_url + href
+                        page_urls.append(full_url)
 
-                if stop:
-                    break
+                print(f"Found {len(page_urls)} articles on page {page}")
+                return page_urls
 
-        finally:
-         driver.quit()
+            finally:
+                driver.quit()
+        all_urls = []
+
+        # Running the code
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(fetch_page_articles, page) for page in range(1, max_pages + 1)]
+
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    urls = future.result()
+                    all_urls.extend(urls)
+                except Exception as e:
+                    print(f"Error fetching page: {e}")
 
         return all_urls
 
@@ -1873,6 +2160,23 @@ class ChinaTimes(News):
         try:
             driver.get(str(self.url))
             time.sleep(WAITING_TIME_FOR_JS_TO_FETCH_DATA)  # 等待 JS 載入
+            # Get page height
+            total_height = driver.execute_script("return document.body.scrollHeight")
+
+            # Human-like scrolling (e.g., 300px at a time)
+            scroll_step = 300
+            current_position = 0
+
+            while current_position < total_height:
+                # Scroll down a bit
+                driver.execute_script(f"window.scrollTo(0, {current_position});")
+                current_position += scroll_step
+                time.sleep(0.001)  # Adjust based on network speed
+
+                # Update total height (in case new content loads)
+                new_height = driver.execute_script("return document.body.scrollHeight")
+                if new_height > total_height:
+                    total_height = new_height
 
             html = driver.page_source
             soup = BeautifulSoup(html, "html.parser")
@@ -1923,13 +2227,78 @@ class ChinaTimes(News):
             if photoContainer:
                 image=photoContainer.find("img")["src"]
                 self.images.append(image)
-
+            print("finished")
         except Exception as e:
             print("❌ 錯誤：", e)
 
         driver.quit()
 
 class CNA(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=1
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        latest_news_url = "https://www.cna.com.tw/list/aall.aspx"
+        print(f"Loading page: {latest_news_url}")
+
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+        driver = webdriver.Chrome(options=options)
+
+        all_urls = []
+
+        try:
+            driver.get(latest_news_url)
+            time.sleep(2)  # Wait for initial load
+
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            articles = soup.select("ul.mainList li")
+            for article in articles:
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        full_url = a_tag['href']
+                        if full_url.startswith("/"):  # Ensure it's a full URL
+                            full_url = "https://www.cna.com.tw" + full_url
+                        if full_url not in all_urls:
+                            all_urls.append(full_url)
+
+
+            for page in range(max_pages-1):
+                view_more_button = WebDriverWait(driver, 5).until(
+                    EC.element_to_be_clickable((By.ID, "SiteContent_uiViewMoreBtn"))
+                )
+                view_more_button.click()
+                print("Clicked '查看更多內容'")
+                time.sleep(2)  # Wait for articles to load after scroll
+
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select("ul.mainList li")
+
+                print(f"Page {page+1}: Found {len(articles)} articles")
+
+                for article in articles:
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        full_url = a_tag['href']
+                        if full_url.startswith("/"):  # Ensure it's a full URL
+                            full_url = "https://news.ltn.com.tw" + full_url
+                        if full_url not in all_urls:
+                            all_urls.append(full_url)
+
+        finally:
+            driver.quit()
+
+        print(f"Total articles found: {len(all_urls)}")
+        return all_urls
+    
     def _parse_article(self, soup):
         # Extract title
         self.title = soup.find("h1").get_text()
@@ -1959,7 +2328,6 @@ class CNA(News):
             if element:
                 self.images.append(element["src"])
                 break
-        print("self.published_at:",self.published_at)
 
         # Extract authors
         date_selector=[
@@ -2037,6 +2405,71 @@ class TaiwanEconomicTimes(News):
         print("self.published_at:",self.published_at)
 
 class PTSNews(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=1
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        latest_news_url = "https://news.pts.org.tw/dailynews"
+        base_url="https://news.pts.org.tw"
+        print(f"Loading page: {latest_news_url}")
+
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+        driver = webdriver.Chrome(options=options)
+
+        all_urls = []
+
+        try:
+            driver.get(latest_news_url)
+            time.sleep(2)  # Wait for initial load
+
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            articles = soup.select("ul.news-list li.d-flex")
+            for article in articles:
+                    a_tag = article.select_one("a")
+                    print("a_tag:",a_tag)
+                    if a_tag:
+                        full_url = a_tag['href']
+                        if full_url.startswith("/"):  # Ensure it's a full URL
+                            full_url = base_url + full_url
+                        if full_url not in all_urls:
+                            all_urls.append(full_url)
+
+
+            for page in range(max_pages-1):
+                # Scroll to bottom
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(2)  # Wait for articles to load after scroll
+
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select("ul.news-list li.d-flex")
+
+                print(f"Page {page+1}: Found {len(articles)} articles")
+
+                for article in articles:
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        full_url = a_tag['href']
+                        if full_url.startswith("/"):  # Ensure it's a full URL
+                            full_url = base_url + full_url
+                        if full_url not in all_urls:
+                            all_urls.append(full_url)
+
+        finally:
+            driver.quit()
+
+        print(f"Total articles found: {len(all_urls)}")
+        return all_urls
+    
     def _parse_article(self, soup):
         # Extract title
         self.title = soup.find("h1").get_text()
@@ -2082,18 +2515,87 @@ class PTSNews(News):
                 #     self.authors.append(journalist_match.group(1))
 
         # Extract images
-        date_selector=[
-            {"selector": "figure img"},  # Preferred - time tag with datetime attribute
-        ]
-        for selector in date_selector:
-            element=soup.select_one(selector["selector"])
-            if element:
-                self.images.append(element["src"])
+        # date_selector=[
+        #     {"selector": "figure img"},  # Preferred - time tag with datetime attribute
+        # ]
+        # for selector in date_selector:
+        #     element=soup.select_one(selector["selector"])
+        #     if element:
+        #         self.images.append(element["src"])
                 break
 
 class CTEE(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=2
     def _fetch_and_parse(self):
         self._parse_article()
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        latest_news_url = "https://www.ctee.com.tw/livenews"
+        base_url="https://www.ctee.com.tw"
+        print(f"Loading page: {latest_news_url}")
+
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+        driver = webdriver.Chrome(options=options)
+
+        all_urls = []
+
+        try:
+            driver.get(latest_news_url)
+            time.sleep(2)  # Wait for initial load
+
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            articles = soup.select("div.newslist.livenews div.newslist__card h3.news-title")
+            for article in articles:
+                    a_tag = article.select_one("a")
+                    print("a_tag:",a_tag)
+                    if a_tag:
+                        full_url = a_tag['href']
+                        if full_url.startswith("/"):  # Ensure it's a full URL
+                            full_url = base_url + full_url
+                        if full_url not in all_urls:
+                            all_urls.append(full_url)
+
+
+            for page in range(max_pages-1):
+                view_more_button = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.ID, "moreBtn"))
+                )
+
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", view_more_button)
+                time.sleep(1)  # Let any animation finish
+                view_more_button.click()
+                print("Clicked '查看更多內容'")
+
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select("div.newslist.livenews div.newslist__card h3.news-title")
+
+                print(f"Page {page+1}: Found {len(articles)} articles")
+
+                for article in articles:
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        full_url = a_tag['href']
+                        if full_url.startswith("/"):  # Ensure it's a full URL
+                            full_url = base_url + full_url
+                        if full_url not in all_urls:
+                            all_urls.append(full_url)
+
+        finally:
+            driver.quit()
+
+        print(f"Total articles found: {len(all_urls)}")
+        return all_urls
 
     def _parse_article(self):
         # 使用非 headless 模式（可視化）
@@ -2188,6 +2690,67 @@ class CTEE(News):
         driver.quit()
 
 class MyPeopleVol(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=2
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        def fetch_page_articles(page):
+            base_url = "https://www.mypeoplevol.com"
+            url = f"{base_url}/?page={page}"
+            print(f"Loading page: {url}")
+
+            # Each thread must create its own driver
+            options = Options()
+            options.add_argument("--headless")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--window-size=1280,800")
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            options.add_experimental_option("useAutomationExtension", False)
+            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+            driver = webdriver.Chrome(options=options)
+
+            try:
+                driver.get(url)
+                time.sleep(2)  # wait for JS
+
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select("div.td_block_inner.tdb-block-inner.td-fix-index div")
+
+                if not articles:
+                    print(f"No articles found on page {page}.")
+                    return []
+
+                page_urls = []
+                for article in articles:
+                    a_tag = article.select_one("a.td-image-wrap")
+                    if a_tag:
+                        full_url = a_tag['href']
+                        if full_url not in page_urls:
+                            page_urls.append(full_url)
+
+                print(f"Found {len(page_urls)} articles on page {page}")
+                return page_urls
+
+            finally:
+                driver.quit()
+        all_urls = []
+
+        # Running the code
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(fetch_page_articles, page) for page in range(1, max_pages + 1)]
+
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    urls = future.result()
+                    all_urls.extend(urls)
+                except Exception as e:
+                    print(f"Error fetching page: {e}")
+
+        return all_urls
+    
     def _parse_article(self, soup):
         # remove promo
         [s.decompose() for s in soup.select('[class*="tdm-descr"]')]
@@ -2196,37 +2759,48 @@ class MyPeopleVol(News):
         self.title = soup.find("h1").get_text()
 
         # Extract content + authors + images
-        p_elements = soup.find_all("p")
-        # content
-        filtered_p = [
-            p.get_text(strip=True)
-            for p in p_elements
-            if 'comment-form-cookies-consent' not in p.get('class', [])
-        ]
-        self.content = "\n".join(filtered_p)
-        text = self.content
-        print("self.content:",self.content)
-        # author
-        journalist_match = re.search(r'【記者([\u4e00-\u9fff]{2,3})', text)
-        if journalist_match:
-            self.authors.append(journalist_match.group(1))
-        journalist_match= re.search(r'【民眾網([\u4e00-\u9fff]{2,3})', text)
-        if journalist_match:
-            self.authors.append(journalist_match.group(1))
-        image_selectors = [
-            {"selector": "figure img"},  # Preferred
-            {
-                "selector": "div.td_block_wrap.tdb_single_content.tdi_50.td-pb-border-top"
-                            ".td_block_template_1.td-post-content.tagdiv-type img"
-            }
-        ]
+        content_div = soup.find("div",class_="td-post-content")
+        if content_div:
+            p_elements=content_div.find_all("p")
+            # content
+            filtered_p = [
+                p.get_text(strip=True)
+                for p in p_elements
+                if 'comment-form-cookies-consent' not in p.get('class', [])
+            ]
+            self.content = "\n".join(filtered_p)
+            text = self.content
+            print("self.content:",self.content)
+            # author
+            journalist_match = re.search(r'【記者([\u4e00-\u9fff]{2,3})', text)
+            if journalist_match:
+                self.authors.append(journalist_match.group(1))
+            journalist_match= re.search(r'【民眾網([\u4e00-\u9fff]{2,3})', text)
+            if journalist_match:
+                self.authors.append(journalist_match.group(1))
+            journalist_match= re.search(r'【民眾新聞網([\u4e00-\u9fff]{2,3})', text)
+            if journalist_match:
+                self.authors.append(journalist_match.group(1))
+            journalist_match= re.search(r'【民眾新聞([\u4e00-\u9fff]{2,3})', text)
+            if journalist_match:
+                self.authors.append(journalist_match.group(1))
+                
+                self.authors.append(journalist_match.group(1))
+            # images 
+            image_selectors = [
+                {"selector": "figure img"},  # Preferred
+                {
+                    "selector": "div.td_block_wrap.tdb_single_content.tdi_50.td-pb-border-top"
+                                ".td_block_template_1.td-post-content.tagdiv-type img"
+                }
+            ]
 
-        for selector in image_selectors:
-            elements = soup.select(selector["selector"])  # Use select() to get all matches
-            print("elements:", elements)
-            if elements:
-                self.images.extend([img["src"] for img in elements if img.has_attr("src")])
-                break  # Stop after first successful selector
+            for selector in image_selectors:
+                elements = soup.select(selector["selector"])  # Use select() to get all matches
+                print("elements:", elements)
+                if elements:
+                    self.images.extend([img["src"] for img in elements if img.has_attr("src")])
+                    break  # Stop after first successful selector
 
         # Extract published date
         date_selector=[
@@ -2251,6 +2825,102 @@ class MyPeopleVol(News):
                 break
 
 class TaiwanTimes(News):
+    def __init__(self, url=None):
+        super().__init__(url)  # Call parent constructor
+        self.max_pages=2
+        self.max_workers = 1  # Override field in child class
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        def fetch_article_url(index, max_pages, start_url, chrome_options):
+            driver = webdriver.Chrome(options=chrome_options)
+            try:
+                driver.get(start_url)
+                time.sleep(3)
+
+                for _ in range(max_pages - 1):
+                    try:
+                        view_more_button = WebDriverWait(driver, 5).until(
+                            EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), '觀看更多')]"))
+                        )
+                        driver.execute_script("arguments[0].scrollIntoView(true);", view_more_button)
+                        time.sleep(1)
+                        view_more_button.click()
+                        time.sleep(3)
+                    except:
+                        break
+
+                articles = driver.find_elements(By.CSS_SELECTOR, "div.immediate-item.use-flex")
+
+                if index < len(articles):
+                    article = articles[index]
+                    driver.execute_script("arguments[0].scrollIntoView(true);", article)
+                    time.sleep(1)
+                    article.click()
+                    time.sleep(2)
+                    return driver.current_url
+                else:
+                    return None
+            finally:
+                driver.quit()
+        latest_news_url = "https://www.taiwantimes.com.tw/app-container/app-content/new/new-category?category=7"
+
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+
+        driver = webdriver.Chrome(options=options)
+
+        try:
+            driver.get(latest_news_url)
+            time.sleep(3)
+
+            for _ in range(max_pages - 1):
+                try:
+                    view_more_button = WebDriverWait(driver, 5).until(
+                        EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), '觀看更多')]"))
+                    )
+                    driver.execute_script("arguments[0].scrollIntoView(true);", view_more_button)
+                    time.sleep(1)
+                    view_more_button.click()
+                    print("Clicked '觀看更多'")
+                    time.sleep(3)
+                except Exception as e:
+                    print("No more '觀看更多' button or failed to click:", e)
+                    break
+
+            articles = driver.find_elements(By.CSS_SELECTOR, "div.immediate-item.use-flex")
+            print("articles:",articles)
+            total_articles = len(articles)
+            print(f"Found {total_articles} articles")
+
+            indices = list(range(total_articles))
+
+        finally:
+            driver.quit()
+
+        article_urls = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(fetch_article_url, idx, max_pages, latest_news_url, options) for idx in indices]
+            for future in concurrent.futures.as_completed(futures):
+                url = future.result()
+                print("url:",url)
+                if url:
+                    article_urls.append(url)
+
+        for idx, url in enumerate(article_urls, 1):
+            print(f"{idx}. {url}")
+
+        print(f"\nTotal articles found: {len(article_urls)}")
+        print("All URLs:", article_urls)
+        return article_urls
+    
     def _fetch_and_parse(self):
         self._parse_article()
 
@@ -2286,13 +2956,15 @@ class TaiwanTimes(News):
 
         try:
             driver.get(str(self.url))
-            time.sleep(1)  # 等待 JS 載入
+            time.sleep(5)  # 等待 JS 載入
 
             html = driver.page_source
             soup = BeautifulSoup(html, "html.parser")
 
             # Extract title
-            self.title = soup.find("div",class_="detail-header").get_text()
+            title_div=soup.find("div",class_="detail-header")
+            if title_div:
+                self.title = title_div.get_text()
             print("self.title:",self.title)
 
             # Extract content
@@ -2305,18 +2977,23 @@ class TaiwanTimes(News):
                 self.content = "No content found"
             print("self.content:",self.content)
 
-            # Extract published date
-            other_info_elements=soup.find_all("div",class_="otherinfo normal-size main-text-color")
-            date=other_info_elements[0]
-            if date:
-                self.published_at=standardDateToTimestamp(date.get_text())
+            # Extract published date safely
+            other_info_elements = soup.find_all("div", class_="otherinfo normal-size main-text-color")
+            if len(other_info_elements) > 0:
+                date_text = other_info_elements[0].get_text()
+                self.published_at = standardDateToTimestamp(date_text)
+            else:
+                print("No date element found")
 
-            # Extract author
-            author=other_info_elements[1].get_text()
-            if author:
-                journalist_match = re.search(r'記者([\u4e00-\u9fff]{2,3})', author)
-                if journalist_match:
-                    self.authors.append(journalist_match.group(1))
+            # Extract author safely
+            if len(other_info_elements) > 1:
+                author_text = other_info_elements[1].get_text()
+                if author_text:
+                    journalist_match = re.search(r'記者([\u4e00-\u9fff]{2,3})', author_text)
+                    if journalist_match:
+                        self.authors.append(journalist_match.group(1))
+            else:
+                print("No author element found")
 
             # Extract images
             image_selector=[
@@ -2396,6 +3073,74 @@ class ChinaDailyNews(News):
 
 
 class SETN(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=1
+        self.max_workers=5
+        
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        latest_news_url = "https://www.setn.com/viewall.aspx"
+        base_url = "https://www.setn.com"
+        print(f"Loading page: {latest_news_url}")
+
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+        driver = webdriver.Chrome(options=options)
+
+        all_urls = []
+
+        try:
+            driver.get(latest_news_url)
+            time.sleep(2)  # Wait for initial load
+
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            articles = soup.select('div[id="NewsList"] div.newsItems')
+            for article in articles:
+                    a_tag = article.select_one("h3.view-li-title a")
+                    if a_tag:
+                        href = a_tag['href']
+                        if href.startswith("/News.aspx?"):
+                            full_url = base_url + href
+                            print("✅ full_url:", full_url)
+                            all_urls.append(full_url)
+                        else:
+                            all_urls.append(href)
+
+
+            for page in range(max_pages-1):
+                # Scroll to bottom
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(2)  # Wait for articles to load after scroll
+
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select('ul[id="realtime"] li')
+
+                print(f"Page {page+1}: Found {len(articles)} articles")
+
+                for article in articles:
+                    a_tag = article.select_one("h3.view-li-title a")
+                    if a_tag:
+                        href = a_tag['href']
+                        full_url = base_url + href
+                        print("✅ full_url:", full_url)
+                        all_urls.append(full_url)
+            print("all_urls:",all_urls)
+
+        finally:
+            driver.quit()
+
+        print(f"Total articles found: {len(all_urls)}")
+        return all_urls
+    
     def _parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
@@ -2413,9 +3158,17 @@ class SETN(News):
         self.content=passage.strip()
 
         # Extract date
-        print(soup.find("div",class_="page-title-text"))
-        date=soup.find("time",class_="page_date").get_text()
-        self.published_at=standardDateToTimestamp(date)
+        date_selectors=[
+            {"selector": 'div.page-title-text'}, 
+            {"selector": 'div.newsTime'}, 
+        ]
+        for selector in date_selectors:
+            element=soup.select_one(selector["selector"])
+            if element:
+                time=element.find("time")
+                if time:
+                    date=time.get_text()
+                    self.published_at=standardDateToTimestamp(date)
 
         # Extract author
         div_element = soup.find("article")
@@ -2423,7 +3176,6 @@ class SETN(News):
         if p_elements:
             # Get the full text from the first <p> tag
             raw_text = p_elements[0].get_text()
-            print("raw_text:",raw_text)
             # Check which name format is present
             if '記者' in raw_text:
                 # Case 1: "記者王超群∕台北報導"
@@ -2442,16 +3194,90 @@ class SETN(News):
             {"selector": 'article'}, 
         ]
         for selector in image_selectors:
-                element=soup.select_one(selector["selector"])
-                print("element:",element)
-                if element:
-                    images=element.find_all("img")
-                    for image in images:
-                        self.images.append(image["src"])
-                    break
+            element=soup.select_one(selector["selector"])
+            print("element:",element)
+            if element:
+                images=element.find_all("img")
+                for image in images:
+                    self.images.append(image["src"])
+                break
         soup.find("self.images:",self.images)
 
 class NextAppleNews(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=2
+        self.max_workers=5
+        
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        def fetch_page_articles(page):
+            base_url = "https://tw.nextapple.com"
+            latest_news_url = f"https://tw.nextapple.com/realtime/latest/{page}"
+            print(f"Loading page: {latest_news_url}")
+
+            # Each thread must create its own driver
+            options = Options()
+            options.add_argument("--headless")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--window-size=1280,800")
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            options.add_experimental_option("useAutomationExtension", False)
+            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+            driver = webdriver.Chrome(options=options)
+
+            try:
+                driver.get(latest_news_url)
+                time.sleep(2)  # wait for JS
+
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select("div.stories-container article")
+                # filtered_articles=[]
+                # for article in articles:
+                #     title=article.find("p",class_="date")
+                #     print(title)
+                #     if title and "PR" not in title:
+                #         filtered_articles.append(article)
+
+                if not articles:
+                    print(f"No articles found on page {page}.")
+                    return []
+
+                page_urls = []
+                for article in articles:
+                    # print("article:",article)
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        print("a_tag:",a_tag)
+                        full_url = a_tag['href']
+                        print("full_url:",full_url)
+                        if full_url not in page_urls:
+                            page_urls.append(full_url)
+
+                print(f"Found {len(page_urls)} articles on page {page}")
+                print("page_urls:",page_urls)
+                return page_urls
+
+            finally:
+                driver.quit()
+        all_urls = []
+
+        # Running the code
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(fetch_page_articles, page) for page in range(1, max_pages + 1)]
+
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    urls = future.result()
+                    all_urls.extend(urls)
+                except Exception as e:
+                    print(f"Error fetching page: {e}")
+
+        return all_urls
+    
     def _parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
@@ -2486,6 +3312,70 @@ class NextAppleNews(News):
         print("self.images:",self.images)
 
 class TTV(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=1
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        latest_news_url = "https://news.ttv.com.tw/realtime"
+        base_url="https://news.ttv.com.tw"
+        print(f"Loading page: {latest_news_url}")
+
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+        driver = webdriver.Chrome(options=options)
+
+        all_urls = []
+
+        try:
+            driver.get(latest_news_url)
+            time.sleep(2)  # Wait for initial load
+
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            articles = soup.select("div.news-list ul li")
+            for article in articles:
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        full_url = a_tag['href']
+                        if full_url.startswith("/"):  # Ensure it's a full URL
+                            full_url = base_url + full_url
+                        if full_url not in all_urls:
+                            all_urls.append(full_url)
+
+
+            for page in range(max_pages-1):
+                # Scroll to bottom
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(2)  # Wait for articles to load after scroll
+
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select("div.news-list ul li")
+
+                print(f"Page {page+1}: Found {len(articles)} articles")
+
+                for article in articles:
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        full_url = a_tag['href']
+                        if full_url.startswith("/"):  # Ensure it's a full URL
+                            full_url = base_url + full_url
+                        if full_url not in all_urls:
+                            all_urls.append(full_url)
+
+        finally:
+            driver.quit()
+
+        print(f"Total articles found: {len(all_urls)}")
+        return all_urls
+    
     def _parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
@@ -2539,6 +3429,70 @@ class TTV(News):
                 
 
 class MirrorMedia(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=2
+        
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        latest_news_url = "https://www.mirrormedia.mg"
+        print(f"Loading page: {latest_news_url}")
+
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+        driver = webdriver.Chrome(options=options)
+
+        all_urls = []
+
+        try:
+            driver.get(latest_news_url)
+            time.sleep(2)  # Wait for initial load
+
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            articles = soup.select('div.latest-news__ItemContainer-sc-f95eff3e-1 a.GTM-homepage-latest-list')
+            for article in articles:
+                    href = article['href']
+                    if href:
+                        full_url = latest_news_url + href
+                        print("✅ full_url:", full_url)
+                        all_urls.append(full_url)
+
+
+            for page in range(max_pages-1):
+                # Scroll to bottom
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(2)  # Wait for articles to load after scroll
+
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select('div.latest-news__ItemContainer-sc-f95eff3e-1 a')
+
+                print(f"Page {page+1}: Found {len(articles)} articles")
+
+                for article in articles:
+                    href = article['href']
+                    print("href:",href)
+                    if href and href.startswith("https://"):
+                        all_urls.append(href)
+                    elif href:
+                        full_url = latest_news_url + href
+                        print("✅ full_url:", full_url)
+                        all_urls.append(full_url)
+            print("all_urls:",all_urls)
+
+        finally:
+            driver.quit()
+
+        print(f"Total articles found: {len(all_urls)}")
+        return all_urls
+    
     def _fetch_and_parse(self):
         self._parse_article()
 
@@ -2675,6 +3629,77 @@ class MirrorMedia(News):
         driver.quit()
 
 class NowNews(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=2
+        self.max_workers=5
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        def fetch_page_articles(page):
+            latest_news_url = f"https://www.nownews.com/cat/breaking/page/{page}"
+            print(f"Loading page: {latest_news_url}")
+
+            # Each thread must create its own driver
+            options = Options()
+            options.add_argument("--headless")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--window-size=1280,800")
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            options.add_experimental_option("useAutomationExtension", False)
+            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+            driver = webdriver.Chrome(options=options)
+
+            try:
+                driver.get(latest_news_url)
+                time.sleep(2)  # wait for JS
+
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select("ul.list-wrap li")
+                # filtered_articles=[]
+                # for article in articles:
+                #     title=article.find("p",class_="date")
+                #     print(title)
+                #     if title and "PR" not in title:
+                #         filtered_articles.append(article)
+
+                if not articles:
+                    print(f"No articles found on page {page}.")
+                    return []
+
+                page_urls = []
+                for article in articles:
+                    # print("article:",article)
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        print("a_tag:",a_tag)
+                        full_url = a_tag['href']
+                        page_urls.append(full_url)
+                        print("full_url:",full_url)
+
+                print(f"Found {len(page_urls)} articles on page {page}")
+                print("page_urls:",page_urls)
+                return page_urls
+
+            finally:
+                driver.quit()
+        all_urls = []
+
+        # Running the code
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(fetch_page_articles, page) for page in range(1, max_pages + 1)]
+
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    urls = future.result()
+                    all_urls.extend(urls)
+                except Exception as e:
+                    print(f"Error fetching page: {e}")
+
+        return all_urls
+    
     def _parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
@@ -2714,6 +3739,80 @@ class NowNews(News):
                 self.images.append(image.find("img")["src"])
 
 class StormMedia(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=2
+        self.max_workers=5
+        
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        def fetch_page_articles(page):
+            base_url = "https://www.storm.mg"
+            latest_news_url = f"https://www.storm.mg/channel/all/0/{page}"
+            print(f"Loading page: {latest_news_url}")
+
+            # Each thread must create its own driver
+            options = Options()
+            options.add_argument("--headless")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--window-size=1280,800")
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            options.add_experimental_option("useAutomationExtension", False)
+            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+            driver = webdriver.Chrome(options=options)
+
+            try:
+                driver.get(latest_news_url)
+                time.sleep(2)  # wait for JS
+
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select("div.ArticleCardWithMeta")
+                # filtered_articles=[]
+                # for article in articles:
+                #     title=article.find("p",class_="date")
+                #     print(title)
+                #     if title and "PR" not in title:
+                #         filtered_articles.append(article)
+
+                if not articles:
+                    print(f"No articles found on page {page}.")
+                    return []
+
+                page_urls = []
+                for article in articles:
+                    # print("article:",article)
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        print("a_tag:",a_tag)
+                        href = a_tag['href']
+                        full_url=base_url+href
+                        page_urls.append(full_url)
+                        print("full_url:",full_url)
+
+                print(f"Found {len(page_urls)} articles on page {page}")
+                print("page_urls:",page_urls)
+                return page_urls
+
+            finally:
+                driver.quit()
+        all_urls = []
+
+        # Running the code
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(fetch_page_articles, page) for page in range(1, max_pages + 1)]
+
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    urls = future.result()
+                    all_urls.extend(urls)
+                except Exception as e:
+                    print(f"Error fetching page: {e}")
+
+        return all_urls
+    
     def _parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
@@ -2742,6 +3841,50 @@ class StormMedia(News):
                 self.images.append(image["src"])
 
 class TVBS(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=1
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        latest_news_url = "https://news.tvbs.com.tw/realtime"
+        base_url="https://news.tvbs.com.tw"
+        print(f"Loading page: {latest_news_url}")
+
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+        driver = webdriver.Chrome(options=options)
+
+        all_urls = []
+
+        try:
+            driver.get(latest_news_url)
+            time.sleep(2)  # Wait for initial load
+
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            articles = soup.select("div.news_list div.list ul li")
+            for article in articles:
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        full_url = a_tag['href']
+                        if full_url.startswith("/"):  # Ensure it's a full URL
+                            full_url = base_url + full_url
+                        if full_url not in all_urls:
+                            all_urls.append(full_url)
+
+        finally:
+            driver.quit()
+
+        print(f"Total articles found: {len(all_urls)}")
+        return all_urls
+    
     def _parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
@@ -2798,6 +3941,60 @@ class TVBS(News):
 
 
 class EBCNews(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=2
+        
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        latest_news_url = "https://news.ebc.net.tw/realtime"
+        base_url = "https://news.ebc.net.tw"
+        print(f"Loading page: {latest_news_url}")
+
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+        driver = webdriver.Chrome(options=options)
+
+        all_urls = []
+
+        try:
+            driver.get(latest_news_url)
+            time.sleep(2)  # Let the initial page load
+
+            scroll_steps = 3*max_pages  # You can adjust this: more steps = more scroll depth
+
+            for i in range(scroll_steps):
+                print(f"Scrolling step {i+1}")
+                driver.execute_script("window.scrollBy(0, 1000);")  # Scroll down 1000 pixels
+                time.sleep(0.2)
+            time.sleep(2)
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            articles = soup.select('div.tab_content a.item.row_box')
+            print(f"Total articles found: {len(articles)}")
+
+            for article in articles:
+                href = article.get('href')
+                if href:
+                    full_url = base_url + href if href.startswith("/") else href
+                    if full_url not in all_urls:
+                        all_urls.append(full_url)
+
+        finally:
+            driver.quit()
+
+
+
+        print(f"Total articles found: {len(all_urls)}")
+        return all_urls
+    
     def _parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
@@ -2853,6 +4050,67 @@ class EBCNews(News):
             self.authors.append(editor)
 
 class ETtoday(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=1
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        def fetch_page_articles(page):
+            latest_news_url= "https://www.ettoday.net/news/news-list.htm"
+            print(f"Loading page: {latest_news_url}")
+
+            # Each thread must create its own driver
+            options = Options()
+            options.add_argument("--headless")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--window-size=1280,800")
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            options.add_experimental_option("useAutomationExtension", False)
+            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+            driver = webdriver.Chrome(options=options)
+
+            try:
+                driver.get(latest_news_url)
+                time.sleep(2)  # wait for JS
+
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select("div.part_list_2 h3")
+                print("articles:",articles)
+
+                if not articles:
+                    print(f"No articles found on page {page}.")
+                    return []
+
+                page_urls = []
+                for article in articles:
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        full_url = a_tag['href']
+                        page_urls.append(full_url)
+
+                print(f"Found {len(page_urls)} articles on page {page}")
+                return page_urls
+
+            finally:
+                driver.quit()
+        all_urls = []
+
+        # Running the code
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(fetch_page_articles, page) for page in range(1, max_pages + 1)]
+
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    urls = future.result()
+                    all_urls.extend(urls)
+                except Exception as e:
+                    print(f"Error fetching page: {e}")
+
+        return all_urls
+    
     def _parse_article(self, soup):
         # Extract title
         self.title = soup.find("h1", class_="title").get_text()
@@ -2914,13 +4172,92 @@ class ETtoday(News):
         print("self.images:", self.images)
 
 class NewTalk(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=2
+        self.max_workers=5
+        
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        today = datetime.datetime.today().strftime('%Y-%m-%d')
+        def fetch_page_articles(page):
+            base_url = "https://newtalk.tw"
+            latest_news_url = f"{base_url}/news/summary/{today}/{page}"
+            print(f"Loading page: {latest_news_url}")
+
+            # Each thread must create its own driver
+            options = Options()
+            options.add_argument("--headless")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--window-size=1280,800")
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            options.add_experimental_option("useAutomationExtension", False)
+            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+            driver = webdriver.Chrome(options=options)
+
+            try:
+                driver.get(latest_news_url)
+                time.sleep(2)  # wait for JS
+
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select("ul.category-list li")
+                filtered_articles=[]
+                for article in articles:
+                    title=article.find("p",class_="date")
+                    print(title)
+                    if title and "PR" not in title:
+                        filtered_articles.append(article)
+
+                if not articles:
+                    print(f"No articles found on page {page}.")
+                    return []
+
+                page_urls = []
+                for article in filtered_articles:
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        full_url = a_tag['href']
+                        if full_url not in page_urls:
+                            page_urls.append(full_url)
+
+                print(f"Found {len(page_urls)} articles on page {page}")
+                return page_urls
+
+            finally:
+                driver.quit()
+        all_urls = []
+
+        # Running the code
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(fetch_page_articles, page) for page in range(1, max_pages + 1)]
+
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    urls = future.result()
+                    all_urls.extend(urls)
+                except Exception as e:
+                    print(f"Error fetching page: {e}")
+
+        return all_urls
+    
     def _parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
 
         # Extract content
-        paragraphs = soup.find("div",class_="articleBody clearfix").find_all("p")
+        content_div = soup.find("div",class_="articleBody clearfix")
+        if content_div:
+            news_img=content_div.find_all("div",class_="news_img")
+            if news_img:
+                print("Hi!")
+                for news_div in news_img:
+                    news_div.decompose()
+        print(content_div)
+        paragraphs=content_div.find_all("p")
         self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
 
         # Extract published date
@@ -2933,8 +4270,26 @@ class NewTalk(News):
             self.published_at=standardDateToTimestamp(date)
 
         # Extract author
-        self.authors.append(soup.find("a",class_="author").get_text().strip())
-
+        author_a=soup.find("a",class_="author")
+        author=''
+        if author_a:
+            author=author_a.get_text().strip()
+            if author!='':
+                self.authors.append(author)
+        print(author)
+        if author=='':
+            if paragraphs:
+                firstParagraph=paragraphs[0]
+                if firstParagraph:
+                    firstParagraphText=firstParagraph.get_text()
+                    print("firstParagraphText:",firstParagraphText)
+                    match = re.search(r'（中央社記者([\u4e00-\u9fff]{2,3})(?:／)?', firstParagraphText)
+                    if match:
+                        print("match:",match)
+                        author=match.group(1).strip()
+                        self.authors.append(author)
+                    else:
+                        print("No match found")
         # Extract images
         content_div=soup.find("div",class_="news_content")
         if content_div:
@@ -2975,6 +4330,72 @@ class CTINews(News):
                 self.images.append(image["src"])
 
 class FTV(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.max_pages=1
+        
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        latest_news_url = "https://www.ftvnews.com.tw/realtime/"
+        base_url = "https://www.ftvnews.com.tw"
+        print(f"Loading page: {latest_news_url}")
+
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+        driver = webdriver.Chrome(options=options)
+
+        all_urls = []
+
+        try:
+            driver.get(latest_news_url)
+            time.sleep(2)  # Wait for initial load
+
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            articles = soup.select('ul[id="realtime"] li')
+            for article in articles:
+                    a_tag = article.select_one("div.news-block a")
+                    if a_tag:
+                        href = a_tag['href']
+                        if href.startswith("/news/detail/"):
+                            full_url = base_url + href
+                            print("✅ full_url:", full_url)
+                            all_urls.append(full_url)
+
+
+            for page in range(max_pages-1):
+                # Scroll to bottom
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(2)  # Wait for articles to load after scroll
+
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select('ul[id="realtime"] li')
+
+                print(f"Page {page+1}: Found {len(articles)} articles")
+
+                for article in articles:
+                    a_tag = article.select_one("div.news-block a")
+                    if a_tag:
+                        href = a_tag['href']
+                        if href.startswith("/news/detail/"):
+                            full_url = base_url + href
+                            print("✅ full_url:", full_url)
+                            all_urls.append(full_url)
+            print("all_urls:",all_urls)
+
+        finally:
+            driver.quit()
+
+        print(f"Total articles found: {len(all_urls)}")
+        return all_urls
+    
     def _fetch_and_parse(self):
         self._parse_article()
 
@@ -3066,3 +4487,499 @@ class FTV(News):
             print("❌ 錯誤：", e)
 
         driver.quit()
+
+class TaiwanNews(News):
+    def __init__(self, url=None):
+        super().__init__(url)  # Call parent constructor
+        self.max_pages=2
+        self.max_workers = 1  # Override field in child class
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        def fetch_page_articles(page):
+            page_urls=[]
+            latest_news_url = f"https://newstaiwan.net/category/%e7%84%a6%e9%bb%9e/page/{page}/"
+            print(f"Loading page: {latest_news_url}")
+
+            # Each thread must create its own driver
+            options = Options()
+            options.add_argument("--headless")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--window-size=1280,800")
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            options.add_experimental_option("useAutomationExtension", False)
+            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+            driver = webdriver.Chrome(options=options)
+
+            try:
+                driver.get(latest_news_url)
+                time.sleep(2)  # wait for JS
+
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select("article.l-post.grid-post.grid-base-post")
+                
+                for article in articles:
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        full_url = a_tag['href']
+                        if full_url not in page_urls:
+                            page_urls.append(full_url)
+
+                print(f"Found {len(page_urls)} articles on page {page}")
+                return page_urls
+
+            finally:
+                driver.quit()
+        all_urls = []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(fetch_page_articles, page) for page in range(1, max_pages + 1)]
+
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    urls = future.result()
+                    all_urls.extend(urls)
+                except Exception as e:
+                    print(f"Error fetching page: {e}")
+
+        return all_urls
+    
+    def _fetch_and_parse(self):
+        self._parse_article()
+
+    def _parse_article(self):
+        # 使用非 headless 模式（可視化）
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+
+        driver = webdriver.Chrome(options=options)
+
+        # 加上防偵測腳本
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": """
+                Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+                });
+            """
+        })
+        driver.execute_script("""
+            let modals = document.querySelectorAll('.popup, .modal, .ad, .overlay, .vjs-modal');
+            modals.forEach(el => el.remove());
+        """)
+
+        # 建議測試短網址，避免過長導致連線問題
+        print("🔗 嘗試連線至：", self.url)
+
+        try:
+            driver.get(str(self.url))
+            time.sleep(2)  # 等待 JS 載入
+
+            html = driver.page_source
+            soup = BeautifulSoup(html, "html.parser")
+
+            # Extract title
+            title_tag = soup.find("h1", class_="is-title post-title")
+            print("title_tag:",title_tag)
+            self.title = title_tag.get_text().strip() if title_tag else "No title found"
+
+            # Extract content
+            content_div = soup.find("div",class_="post-content")
+            print("content_div:",content_div)
+            if content_div:
+                paragraphs=content_div.find_all("p")
+                if paragraphs:
+                    self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
+
+            # Extract published date
+            date_time=soup.find("time",class_="post-date")
+            if date_time:
+                date=date_time.get_text().replace(' ', '').strip()
+                print("date:",date)
+                self.published_at=standardChineseDatetoTimestamp(date)
+                print("date:",date)
+
+            # Extract images
+            image_div=soup.find("div",class_="featured")
+            if image_div:
+                image=image_div.find("img")
+                if image:
+                    self.images.append(image["src"])
+
+            # Extract author
+            author_a=soup.find("a",rel="author")
+            print("author_a:",author_a)
+            if author_a:
+                author=author_a.get_text()
+                if author:
+                    author=author.replace(" ","")
+                    self.authors.append(author)
+
+        except Exception as e:
+            print("❌ 錯誤：", e)
+
+        driver.quit()
+
+
+class CTWant(News):
+    def __init__(self, url=None):
+        super().__init__(url)  # Call parent constructor
+        self.max_pages=2
+        self.max_workers = 1  # Override field in child class
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        def fetch_page_articles(page):
+            page_urls=[]
+            latest_news_url = f"https://www.ctwant.com/category/%E6%9C%80%E6%96%B0?page={page}/"
+            base_url="https://www.ctwant.com/"
+            print(f"Loading page: {latest_news_url}")
+
+            # Each thread must create its own driver
+            options = Options()
+            options.add_argument("--headless")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--window-size=1280,800")
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            options.add_experimental_option("useAutomationExtension", False)
+            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+            driver = webdriver.Chrome(options=options)
+
+            try:
+                driver.get(latest_news_url)
+                time.sleep(2)  # wait for JS
+
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select("div.p-realtime__list div.p-realtime__item")
+                
+                for article in articles:
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        href = a_tag['href']
+                        full_url=base_url+href
+                        page_urls.append(full_url)
+
+                print(f"Found {len(page_urls)} articles on page {page}")
+                return page_urls
+
+            finally:
+                driver.quit()
+        all_urls = []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(fetch_page_articles, page) for page in range(1, max_pages + 1)]
+
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    urls = future.result()
+                    all_urls.extend(urls)
+                except Exception as e:
+                    print(f"Error fetching page: {e}")
+
+        return all_urls
+    
+    def _parse_article(self, soup):
+        # Extract title
+        title_h1 = soup.find("h1", class_="p-article__title")
+        self.title = title_h1.get_text().strip() if title_h1 else "No title found"
+
+        # Extract content
+        paragraphs = soup.find("article").find_all("p")
+        self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
+
+        # Extract author
+        author_span=soup.find("span",class_="author-name")
+        if author_span:
+            author=author_span.get_text()
+            if author:
+                self.authors.append(author)
+
+        # Extract published date
+        time=soup.find("time",class_="p-article-info__time")
+        print("time:",time)
+        if time:
+            date=time.get_text()
+            if date:
+                self.published_at=standardDateToTimestamp(date)
+
+        # Extract images
+        content_div=soup.find("div",class_="p-article__img-box")
+        if content_div:
+            images=content_div.find_all("img")
+            for image in images:
+                self.images.append(image["src"])
+
+
+class TSSDNews(News):
+    def __init__(self, url=None):
+        super().__init__(url)  # Call parent constructor
+        self.max_pages=2
+        self.max_workers = 1  # Override field in child class
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        max_workers=self.max_workers
+        def fetch_page_articles(page):
+            page_urls=[]
+            latest_news_url = f"https://www.tssdnews.com.tw/index.php?page={page}&FID=63"
+            base_url="https://www.tssdnews.com.tw"
+            print(f"Loading page: {latest_news_url}")
+
+            # Each thread must create its own driver
+            options = Options()
+            options.add_argument("--headless")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--window-size=1280,800")
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            options.add_experimental_option("useAutomationExtension", False)
+            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+            driver = webdriver.Chrome(options=options)
+
+            try:
+                driver.get(latest_news_url)
+                time.sleep(2)  # wait for JS
+
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select("div[id='story'] a")
+                print("articles:",articles)
+                
+                for article in articles:
+                    href = article["href"]
+                    if href:
+                        full_url=base_url+href
+                        page_urls.append(full_url)
+
+                print(f"Found {len(page_urls)} articles on page {page}")
+                return page_urls
+
+            finally:
+                driver.quit()
+        all_urls = []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers) as executor:
+            futures = [executor.submit(fetch_page_articles, page) for page in range(1, max_pages + 1)]
+
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    urls = future.result()
+                    all_urls.extend(urls)
+                except Exception as e:
+                    print(f"Error fetching page: {e}")
+        return all_urls
+    
+    def _fetch_and_parse(self):
+        self._parse_article()
+
+    def _parse_article(self):
+        # 使用非 headless 模式（可視化）
+        base_url="https://www.tssdnews.com.tw"
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+
+        driver = webdriver.Chrome(options=options)
+
+        # 加上防偵測腳本
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": """
+                Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+                });
+            """
+        })
+        driver.execute_script("""
+            let modals = document.querySelectorAll('.popup, .modal, .ad, .overlay, .vjs-modal');
+            modals.forEach(el => el.remove());
+        """)
+
+        # 建議測試短網址，避免過長導致連線問題
+        print("🔗 嘗試連線至：", self.url)
+
+        try:
+            driver.get(str(self.url))
+            time.sleep(2)  # 等待 JS 載入
+
+            html = driver.page_source
+            soup = BeautifulSoup(html, "html.parser")
+
+            # Extract title
+            title_div = soup.find("div", id="news_title")
+            print("title_div:",title_div)
+            self.title = title_div.get_text().strip() if title_div else "No title found"
+
+            # Extract content
+            content_div = soup.find("div",id="article")
+            print("content_div:",content_div)
+            if content_div:
+                self.content=content_div.get_text()
+
+            # Extract published date+author
+            info=soup.find("div",id="news_author")
+            if info:
+                text = info.get_text(strip=True)
+                print("Full text:", text)
+
+                # Extract author (記者 Name ／ Location 報導)
+                author_match = re.search(r'記者([\u4e00-\u9fff]{2,3})', text)
+                if author_match:
+                    author = author_match.group(1)
+                    print("Author:", author)
+                    self.authors.append(author)
+                else:
+                    author = None
+                    print("No author found")
+
+                # Extract date (matches YYYY/MM/DD)
+                date_match = re.search(r'\d{4}/\d{2}/\d{2}', text)
+                if date_match:
+                    date_str = date_match.group(0)
+                    print("Date:", date_str)
+                    self.published_at=standardDateToTimestamp(date_str)
+                else:
+                    date_str = None
+                    print("No date found")
+            
+
+            # Extract images
+            image_div=soup.find("div",id="news_photo")
+            if image_div:
+                image=image_div.find("img")
+                if image:
+                    full_url=base_url+image["src"]
+                    self.images.append(full_url)
+
+        except Exception as e:
+            print("❌ 錯誤：", e)
+
+        driver.quit()
+
+class CTS(News):
+    def __init__(self, url=None):
+        super().__init__(url)  # Call parent constructor
+        self.max_pages=1
+        self.max_workers = 5  # Override field in child class
+
+    def get_article_urls(self):
+        max_pages=self.max_pages
+        def fetch_page_articles(page):
+            page_urls=[]
+            latest_news_url = "https://news.cts.com.tw/real/index.html"
+            base_url="https://news.cts.com.tw"
+            print(f"Loading page: {latest_news_url}")
+
+            # Each thread must create its own driver
+            options = Options()
+            options.add_argument("--headless")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--window-size=1280,800")
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            options.add_experimental_option("useAutomationExtension", False)
+            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+            driver = webdriver.Chrome(options=options)
+
+            try:
+                driver.get(latest_news_url)
+                time.sleep(2)  # wait for JS
+
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select("div.newslist-container a")
+                
+                for article in articles:
+                    full_url = article["href"]
+                    page_urls.append(full_url)
+
+                for page in range(max_pages-1):
+                    # Scroll to bottom
+                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                    time.sleep(2)  # Wait for articles to load after scroll
+
+                    soup = BeautifulSoup(driver.page_source, "html.parser")
+                    articles = soup.select("div.newslist-container a")
+                    
+                    for article in articles:
+                        full_url = article["href"]
+                        if full_url not in page_urls:
+                            page_urls.append(full_url)
+
+                    print(f"Page {page+1}: Found {len(articles)} articles")
+
+                print(f"Found {len(page_urls)} articles on page {page}")
+                return page_urls
+
+            finally:
+                driver.quit()
+        all_urls = []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(fetch_page_articles, page) for page in range(1, max_pages + 1)]
+
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    urls = future.result()
+                    all_urls.extend(urls)
+                except Exception as e:
+                    print(f"Error fetching page: {e}")
+
+        return all_urls
+    
+    def _parse_article(self, soup):
+        # Extract title
+        title_h1 = soup.find("h1", class_="artical-title")
+        self.title = title_h1.get_text().strip() if title_h1 else "No title found"
+
+        # Extract content
+        content_div = soup.find("div",class_="artical-content")
+        if content_div:
+            paragraphs=content_div.find_all("p")
+            self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
+
+        # Extract author
+        author_span=soup.find("span",class_="author-name")
+        if author_span:
+            author=author_span.get_text()
+            if author:
+                self.authors.append(author)
+
+        # Extract published date
+        time=soup.find("time",{"itemprop":"datePublished"})
+        print("time:",time)
+        if time:
+            date=time.get_text()
+            if date:
+                self.published_at=standardDateToTimestamp(date)
+
+        # Extract images
+        content_div=soup.find("div",class_="artical-img")
+        if content_div:
+            images=content_div.find_all("img")
+            for image in images:
+                self.images.append(image["src"])
+
+        # Extract news source
+        news_src_p=soup.find("p",class_="news-src")
+        if news_src_p:
+            news_source=news_src_p.get_text()
+            if "華視新聞" not in news_source:
+                news_source=news_source.replace("新聞來源：","").strip()
+                self.origin=news_source
+

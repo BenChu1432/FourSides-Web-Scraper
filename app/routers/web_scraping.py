@@ -2,7 +2,7 @@ import asyncio
 from typing import List
 import concurrent
 from fastapi import APIRouter, HTTPException
-from app.schemas.models import NewsRequest, NewsResponse, Preferences, Region, Topic
+from app.schemas.news import NewsRequest, NewsResponse
 import logging
 
 from constant import NEWS_CLASSES
@@ -37,16 +37,31 @@ async def get_news(media_name: str):
 
     try:
         parser_instance = parser_class()
-        article_urls = parser_instance.get_article_urls(max_pages=2)
+        print("parser_instance:",parser_instance)
+        article_urls = parser_instance.get_article_urls()
+        max_workers=parser_instance.max_workers
+        print("max_workers:",max_workers)
         print("article_urls:",article_urls)
         list_of_news=[]
         def fetch_article(url):
-            return parser_class(url)
+            try:
+                article = parser_class(url)
+                return NewsResponse(
+                    url=article.url,
+                    title=article.title,
+                    content=article.content,
+                    published_at=article.published_at,
+                    authors=article.authors,
+                    images=article.images,
+                    origin=article.origin
+                )
+            except Exception as e:
+                print(f"❌ Failed to parse article {url}: {e}")
+                return None
         # (Recommended for blocking I/O like APIs)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks
             future_to_url = {executor.submit(fetch_article, url): url for url in article_urls}
-
             # As they complete, gather results
             for future in concurrent.futures.as_completed(future_to_url):
                 try:
