@@ -1,8 +1,11 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware  # ✅ Import CORS middleware
+from fastapi.middleware.cors import CORSMiddleware  
 from app.routers import web_scraping
+from dotenv import load_dotenv
+import os
 
 app = FastAPI(title="S-News API")
+
 
 # ✅ Allow requests from frontend
 app.add_middleware(

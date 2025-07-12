@@ -17,7 +17,7 @@ import undetected_chromedriver
 import datetime
 # from translation import translate_text
 from util.timeUtil import HKEJDateToTimestamp, IntiumChineseDateToTimestamp, NowTVDateToTimestamp, RTHKChineseDateToTimestamp, SCMPDateToTimestamp, SingTaoDailyChineseDateToTimestamp, TheCourtNewsDateToTimestamp, standardChineseDatetoTimestamp, standardDateToTimestamp
-from webScraper.simplifiedChineseToTraditionalChinese import simplifiedChineseToTraditionalChinese
+from util.simplifiedChineseToTraditionalChinese import simplifiedChineseToTraditionalChinese
 import concurrent.futures
 import time
 
@@ -26,6 +26,7 @@ WAITING_TIME_FOR_JS_TO_FETCH_DATA=2
 
 
 class News(ABC):
+    media_name: Optional[str]
     title: Optional[str]
     content: Optional[str]
     published_at: Optional[int]
@@ -36,6 +37,7 @@ class News(ABC):
     max_pages: int
 
     def __init__(self, url=None):
+        self.media_name=''
         self.url = url
         self.max_workers=5
         self.max_pages=1
@@ -66,44 +68,13 @@ class News(ABC):
         except Exception as e:
             print(f"Error fetching article: {e}")
 
+    @abstractmethod
     def _parse_article(self, soup):
-        # Extract title
-        title_tag = soup.find("meta", property="og:title")
-        self.title = title_tag["content"].strip() if title_tag and title_tag.has_attr("content") else "No title found"
-        print("self.title:", self.title)
+        """
+        Child classes MUST implement this to extract content from BeautifulSoup soup.
+        """
+        pass
 
-        # Extract images
-        self.images = []
-        image_div = soup.find("div", id="zoomedimg")
-        if image_div:
-            image_links = image_div.find_all("a",class_="fancybox")
-            for a in image_links:
-                img = a.find("img")
-                if img and img.has_attr("src"):
-                    self.images.append(img["src"])
-        print("self.images:", self.images)
-
-        # Extract published date
-        date_div = soup.find("div", itemprop="datePublished", class_="date")
-        if date_div:
-            self.published_at = standardChineseDatetoTimestamp(date_div.get_text(strip=True))
-        else:
-            self.published_at = None
-        print("self.published_at:", self.published_at)
-
-        # Extract content
-        content_div = soup.find("article")
-        if not content_div:
-            content_div = soup.find("article", class_="news-text")
-
-        if content_div:
-            promo=content_div.find_all("strong")
-            for p in promo:
-                p.decompose()
-            paragraphs = content_div.find_all("p")
-            self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
-        else:
-            self.content = "No content found"
 
         
     
@@ -1740,6 +1711,7 @@ class CCTV(News):
 class UnitedDailyNews(News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="UnitedDailyNews"
         self.max_pages=1
 
     def get_article_urls(self):
@@ -1907,6 +1879,7 @@ class UnitedDailyNews(News):
 class LibertyTimesNet(News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="LibertyTimesNet"
         self.max_pages=1
 
     def get_article_urls(self):
@@ -2062,6 +2035,7 @@ class LibertyTimesNet(News):
 class ChinaTimes(News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="ChinaTimes"
         self.max_workers=5
         self.max_pages=5
 
@@ -2236,6 +2210,7 @@ class ChinaTimes(News):
 class CNA(News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="CNA"
         self.max_pages=1
     def get_article_urls(self):
         max_pages=self.max_pages
@@ -2353,6 +2328,10 @@ class CNA(News):
                 break
 
 class TaiwanEconomicTimes(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.media_name="TaiwanEconomicTimes"
+
     def _parse_article(self, soup):
         # Extract title
         self.title = soup.find("h1").get_text()
@@ -2407,6 +2386,7 @@ class TaiwanEconomicTimes(News):
 class PTSNews(News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="PTSNews"
         self.max_pages=1
 
     def get_article_urls(self):
@@ -2527,7 +2507,9 @@ class PTSNews(News):
 class CTEE(News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="CTEE"
         self.max_pages=2
+
     def _fetch_and_parse(self):
         self._parse_article()
 
@@ -2692,6 +2674,7 @@ class CTEE(News):
 class MyPeopleVol(News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="MyPeopleVol"
         self.max_pages=2
     def get_article_urls(self):
         max_pages=self.max_pages
@@ -2827,6 +2810,7 @@ class MyPeopleVol(News):
 class TaiwanTimes(News):
     def __init__(self, url=None):
         super().__init__(url)  # Call parent constructor
+        self.media_name="TaiwanTimes"
         self.max_pages=2
         self.max_workers = 1  # Override field in child class
 
@@ -3015,6 +2999,10 @@ class TaiwanTimes(News):
         driver.quit()
 
 class ChinaDailyNews(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.media_name="ChinaDailyNews"
+
     def _parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
@@ -3075,6 +3063,7 @@ class ChinaDailyNews(News):
 class SETN(News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="SETN"
         self.max_pages=1
         self.max_workers=5
         
@@ -3206,6 +3195,7 @@ class SETN(News):
 class NextAppleNews(News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="NextAppleNews"
         self.max_pages=2
         self.max_workers=5
         
@@ -3314,6 +3304,7 @@ class NextAppleNews(News):
 class TTV(News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="TTV"
         self.max_pages=1
 
     def get_article_urls(self):
@@ -3431,6 +3422,7 @@ class TTV(News):
 class MirrorMedia(News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="MirrorMedia"
         self.max_pages=2
         
 
@@ -3631,6 +3623,7 @@ class MirrorMedia(News):
 class NowNews(News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="NowNews"
         self.max_pages=2
         self.max_workers=5
 
@@ -3741,6 +3734,7 @@ class NowNews(News):
 class StormMedia(News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="StormMedia"
         self.max_pages=2
         self.max_workers=5
         
@@ -3843,6 +3837,7 @@ class StormMedia(News):
 class TVBS(News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="TVBS"
         self.max_pages=1
 
     def get_article_urls(self):
@@ -3943,6 +3938,7 @@ class TVBS(News):
 class EBCNews(News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="EBCNews"
         self.max_pages=2
         
 
@@ -4052,6 +4048,7 @@ class EBCNews(News):
 class ETtoday(News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="ETtoday"
         self.max_pages=1
 
     def get_article_urls(self):
@@ -4113,8 +4110,14 @@ class ETtoday(News):
     
     def _parse_article(self, soup):
         # Extract title
-        self.title = soup.find("h1", class_="title").get_text()
-        print("self.title:", self.title)
+        title_selectors=[
+             {"selector": "h1.title", "text": True}, 
+             {"selector":"h1.title_article","text": True}
+        ]
+        for selector in title_selectors:
+            element = soup.select_one(selector["selector"])
+            if element:
+                self.title=element.get_text()
 
         # Extract content
         content_selectors=[
@@ -4174,6 +4177,7 @@ class ETtoday(News):
 class NewTalk(News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="NewTalk"
         self.max_pages=2
         self.max_workers=5
         
@@ -4298,6 +4302,79 @@ class NewTalk(News):
                 self.images.append(image["src"])
 
 class CTINews(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.media_name="CTINews"
+
+    def get_article_urls(self):
+        latest_news_url = "https://ctinews.com/news/topics/KDdek5vgXx"
+        base_url="https://ctinews.com"
+        print(f"Loading page: {latest_news_url}")
+
+        all_urls=[]
+        headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.5',
+                        'Referer': 'https://google.com/',
+                        'Connection': 'keep-alive',
+                        'DNT': '1',
+                        'Upgrade-Insecure-Requests': '1',
+                    }
+        response=requests.get(latest_news_url,headers=headers)
+        html=response.text
+        # print("html:",html)
+        soup = BeautifulSoup(html, "html.parser")
+        articles = soup.select('div.feed-wrapper')
+        # print("articles:",articles)
+        for article in articles:
+                a_tag = article.select_one("a")
+                print("a_tag:",a_tag)
+                if a_tag:
+                    href = a_tag['href']
+                    if href.startswith("/news/items"):
+                        full_url = base_url + href
+                        print("✅ full_url:", full_url)
+                        all_urls.append(full_url)
+        articles = soup.select('div.news-hover-section')
+        for article in articles:
+                a_tag = article.select_one("a")
+                print("a_tag:",a_tag)
+                if a_tag:
+                    href = a_tag['href']
+                    if href.startswith("/news/items"):
+                        full_url = base_url + href
+                        if full_url not in all_urls:
+                            print("✅ full_url:", full_url)
+                            all_urls.append(full_url)
+
+        articles = soup.select('div.base-card-sm:not(.with-video)')
+        for article in articles:
+                a_tag = article.select_one("a")
+                print("a_tag:",a_tag)
+                if a_tag:
+                    href = a_tag['href']
+                    if href.startswith("/news/items"):
+                        full_url = base_url + href
+                        if full_url not in all_urls:
+                            print("✅ full_url:", full_url)
+                            all_urls.append(full_url)
+
+        articles = soup.select('div.base-card-md:not(.with-video)')
+        for article in articles:
+                a_tag = article.select_one("a")
+                print("a_tag:",a_tag)
+                if a_tag:
+                    href = a_tag['href']
+                    if href.startswith("/news/items"):
+                        full_url = base_url + href
+                        if full_url not in all_urls:
+                            print("✅ full_url:", full_url)
+                            all_urls.append(full_url)
+
+
+        print(f"Total articles found: {len(all_urls)}")
+        return all_urls
     def _parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
@@ -4332,6 +4409,7 @@ class CTINews(News):
 class FTV(News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="FTV"
         self.max_pages=1
         
 
@@ -4491,6 +4569,7 @@ class FTV(News):
 class TaiwanNews(News):
     def __init__(self, url=None):
         super().__init__(url)  # Call parent constructor
+        self.media_name="TaiwanNews"
         self.max_pages=2
         self.max_workers = 1  # Override field in child class
 
@@ -4632,6 +4711,7 @@ class TaiwanNews(News):
 class CTWant(News):
     def __init__(self, url=None):
         super().__init__(url)  # Call parent constructor
+        self.media_name="CTWant"
         self.max_pages=2
         self.max_workers = 1  # Override field in child class
 
@@ -4723,6 +4803,7 @@ class CTWant(News):
 class TSSDNews(News):
     def __init__(self, url=None):
         super().__init__(url)  # Call parent constructor
+        self.media_name="TSSDNews"
         self.max_pages=2
         self.max_workers = 1  # Override field in child class
 
@@ -4874,6 +4955,7 @@ class TSSDNews(News):
 class CTS(News):
     def __init__(self, url=None):
         super().__init__(url)  # Call parent constructor
+        self.media_name="CTS"
         self.max_pages=1
         self.max_workers = 5  # Override field in child class
 
