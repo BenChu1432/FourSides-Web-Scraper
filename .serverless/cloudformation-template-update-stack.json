@@ -91,7 +91,7 @@
       "Properties": {
         "Code": {
           "S3Bucket": "serverless-framework-deployments-ap-southeast-1-c98ba93a-9727",
-          "S3Key": "serverless/foursides-poc/poc/1752290341198-2025-07-12T03:19:01.198Z/foursides-poc.zip"
+          "S3Key": "serverless/foursides-poc/poc/1752484918805-2025-07-14T09:21:58.805Z/foursides-poc.zip"
         },
         "Handler": "server.handler",
         "Runtime": "python3.11",
@@ -116,14 +116,14 @@
         "ApiLogGroup"
       ]
     },
-    "ApiLambdaVersionGtPdVhD31VICsst4DHRXS4J3XKooLLLhn7qe8Zu4": {
+    "ApiLambdaVersionDCeKgIUWbllEiZGqf9sawApVvmFUr6D9hZVnza3Kw5k": {
       "Type": "AWS::Lambda::Version",
       "DeletionPolicy": "Retain",
       "Properties": {
         "FunctionName": {
           "Ref": "ApiLambdaFunction"
         },
-        "CodeSha256": "L6vLPqpG+9RZhEM6sYo7skjfPWiWt1TQlaWC4+AQiB4="
+        "CodeSha256": "CYB7Kcv/DGKJ8BjukAkb9/TzEjkxqRpxILDHvwv07Ow="
       }
     },
     "ApiGatewayRestApi": {
@@ -341,7 +341,7 @@
         "ApiLambdaPermissionApiGateway"
       ]
     },
-    "ApiGatewayDeployment1752290314617": {
+    "ApiGatewayDeployment1752484894256": {
       "Type": "AWS::ApiGateway::Deployment",
       "Properties": {
         "RestApiId": {
@@ -404,7 +404,7 @@
     "ApiLambdaFunctionQualifiedArn": {
       "Description": "Current Lambda function version",
       "Value": {
-        "Ref": "ApiLambdaVersionGtPdVhD31VICsst4DHRXS4J3XKooLLLhn7qe8Zu4"
+        "Ref": "ApiLambdaVersionDCeKgIUWbllEiZGqf9sawApVvmFUr6D9hZVnza3Kw5k"
       },
       "Export": {
         "Name": "sls-foursides-poc-poc-ApiLambdaFunctionQualifiedArn"
