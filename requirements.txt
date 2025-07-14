@@ -1,11 +1,13 @@
-backend==0.2.4.1
 beautifulsoup4==4.13.4
-fastapi==0.115.14
+dateparser==1.2.2
+fastapi==0.95.2
 mangum==0.19.0
 opencc==1.1.9
-pydantic==2.11.7
-pydantic-settings==2.10.1
-pydantic_core==2.33.2
+pydantic==1.10.13
+python-dotenv==1.0.1
 Requests==2.32.4
-selenium==4.34.0
-undetected_chromedriver==3.5.5
+selenium==4.34.2
+SQLAlchemy==2.0.41
+uvicorn==0.29.0               # Add this for FastAPI to run
+asyncpg==0.29.0               # Needed if you use PostgreSQL
+python-dotenv==1.0.1          # You’re using dotenv

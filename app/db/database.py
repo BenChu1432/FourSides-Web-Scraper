@@ -6,8 +6,8 @@ import os
 load_dotenv()
 
 DATABASE_URL = os.getenv("ASYNC_DATABASE_URL")
-
-engine = create_async_engine(DATABASE_URL, echo=True)
+# log all SQL statements for debugging
+engine = create_async_engine(DATABASE_URL, echo=True, pool_pre_ping=True)
 
 AsyncSessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()

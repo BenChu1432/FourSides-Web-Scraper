@@ -11,7 +11,7 @@ plugins:
 
 provider:
     name: aws
-    runtime: python3.12
+    runtime: python3.11
     stage: poc
     region: ap-southeast-1
     timeout: 29
@@ -38,15 +38,25 @@ functions:
 
 custom:
     pythonRequirements:
-        fileName: requirements.txt
         dockerizePip: true
-        zip: true
+        platform: linux/amd64
         slim: true
-        invalidateCaches:
-            true
-            # slim: true
-            # dockerizePip: true # Ensure Linux-compatible builds
-            # useStaticCache: false # Disable caching
-            # # Add these two critical settings:
-            # strip: false # Prevent over-optimization
-            # injectFiles: true # Ensure unzip script works
+        strip: false
+
+package:
+    exclude:
+        - node_modules/**
+        - .venv/**
+        - __pycache__/**
+        - .serverless/**
+        - .pytest_cache/**
+        - .DS_Store
+        - tests/**
+        - requirements.zip
+
+          # slim: true
+          # dockerizePip: true # Ensure Linux-compatible builds
+          # useStaticCache: false # Disable caching
+          # # Add these two critical settings:
+          # strip: false # Prevent over-optimization
+          # injectFiles: true # Ensure unzip script works

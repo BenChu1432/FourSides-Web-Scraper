@@ -5,12 +5,13 @@ from pydantic import BaseModel
 from sqlalchemy import Enum as SAEnum
 from app.enums import enums
 
+
 class NewsEntity(Base):
     __tablename__ = "news"
 
     id = Column(Integer, primary_key=True, index=True)
     media_name = Column(SAEnum(enums.MediaNameEnum), nullable=True)  
-    url = Column(String, nullable=True)
+    url = Column(String, unique=True, nullable=True)
     title = Column(String, nullable=True)
     origin = Column(SAEnum(enums.OriginEnum), nullable=True)  
     content = Column(Text, nullable=True)

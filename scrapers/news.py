@@ -1,5 +1,5 @@
 import re
-from typing import Optional
+from typing import Dict, Optional
 from urllib.parse import urlparse
 import concurrent
 import requests
@@ -13,11 +13,14 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 import time
-import undetected_chromedriver 
 import datetime
 # from translation import translate_text
+from app.dto.dto import FetchUrlsResult, ParseArticleResult
+from app.enums.enums import ErrorTypeEnum
+from app.errors.NewsParsingError import UnmappedMediaNameError
+from app.service.error_service import log_error
+from util import chineseMediaTranslationUtil
 from util.timeUtil import HKEJDateToTimestamp, IntiumChineseDateToTimestamp, NowTVDateToTimestamp, RTHKChineseDateToTimestamp, SCMPDateToTimestamp, SingTaoDailyChineseDateToTimestamp, TheCourtNewsDateToTimestamp, standardChineseDatetoTimestamp, standardDateToTimestamp
-from util.simplifiedChineseToTraditionalChinese import simplifiedChineseToTraditionalChinese
 import concurrent.futures
 import time
 
@@ -47,7 +50,43 @@ class News(ABC):
         self.origin="native"
         self.authors=[]
         self.images=[]
-        self._fetch_and_parse()
+
+    @abstractmethod
+    def _get_article_urls(self):
+        """
+        Child classes MUST implement this to extract content from BeautifulSoup soup.
+        """
+        pass
+    
+    #  Wrapper pattern
+    #  Centralizing error handling across polymorphic child classes while keeping the code DRY and clean.
+    def get_article_urls_with_errors(self) -> FetchUrlsResult:
+        errors = []
+        urls = []
+        try:
+            urls = self._get_article_urls()
+            if not urls:
+                errors.append({
+                    "failure_type": ErrorTypeEnum.ZERO_URLS_FETCHED,
+                    "media_name": self.media_name,
+                    "reason": "No URLs found",
+                })
+        except Exception as e:
+            errors.append({
+                "failure_type": ErrorTypeEnum.OTHERS,
+                "media_name": self.media_name,
+                "reason": str(e)
+            })
+
+        return FetchUrlsResult(urls, errors)
+    
+    # soup may exist or not
+    @abstractmethod
+    def parse_article(self, soup):
+        """
+        Child classes MUST implement this to extract content from BeautifulSoup soup.
+        """
+        pass
 
     def _fetch_and_parse(self):
         try:
@@ -64,16 +103,39 @@ class News(ABC):
             response.encoding = 'utf-8'
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
-            self._parse_article(soup)
+            self.parse_article(soup)
         except Exception as e:
             print(f"Error fetching article: {e}")
+            raise
 
-    @abstractmethod
-    def _parse_article(self, soup):
-        """
-        Child classes MUST implement this to extract content from BeautifulSoup soup.
-        """
-        pass
+    
+    def parse_article_with_errors(self) -> ParseArticleResult:
+        errors = []
+        try:
+            self._fetch_and_parse()
+            if self.content is None or self.content=="":
+                errors.append({
+                    "failure_type": ErrorTypeEnum.PARSING_FAILURE,
+                    "url":self.url,
+                    "media_name": self.media_name,
+                    "reason": "No content found"
+                })
+        except UnmappedMediaNameError as e:
+            errors.append({
+                "failure_type": ErrorTypeEnum.UNMAPPED_MEDIA,
+                "url": self.url,
+                "media_name": self.media_name,
+                "reason": f"Cannot find {self.media_name} in the map"
+            })
+        except Exception as e:
+            errors.append({
+                "failure_type": ErrorTypeEnum.PARSING_ERROR,
+                "url":self.url,
+                "media_name": self.media_name,
+                "reason": str(e)
+            })
+
+        return ParseArticleResult(errors)
 
 
         
@@ -81,7 +143,7 @@ class News(ABC):
 
 # HK News Media
 class HongKongFreePress(News):
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
@@ -105,7 +167,7 @@ class HongKongFreePress(News):
 
 
 class MingPaoNews(News):
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
@@ -157,7 +219,7 @@ class MingPaoNews(News):
         self.content = upper_content + "\n" + lower_content
 
 class SingTaoDaily(News):
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag and title_tag.has_attr("content") else "No title found"
@@ -208,7 +270,7 @@ class SingTaoDaily(News):
             self.content = "No content found"
 
 class SCMP(News):
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag and title_tag.has_attr("content") else "No title found"
@@ -257,10 +319,11 @@ class SCMP(News):
 class ChineseNewYorkTimes (News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="ChineseNewYorkTimes"
         self.max_pages=1
         
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         latest_news_url = "https://m.cn.nytimes.com/zh-hant/"
         print(f"Loading page: {latest_news_url}")
@@ -303,9 +366,9 @@ class ChineseNewYorkTimes (News):
         return all_urls
 
     def _fetch_and_parse(self):
-        self._parse_article()
+        self.parse_article()
 
-    def _parse_article(self):
+    def parse_article(self):
         # 使用非 headless 模式（可視化）
         options = Options()
         options.add_argument("--headless")
@@ -378,8 +441,11 @@ class ChineseNewYorkTimes (News):
         driver.quit()
 
 class DeutscheWelle (News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.media_name="DeutscheWelle"
     
-    def get_article_urls(self):
+    def _get_article_urls(self):
         all_urls=[]
         latest_news_url = "https://rss.dw.com/rdf/rss-chi-all"
         headers = {
@@ -409,9 +475,9 @@ class DeutscheWelle (News):
         return all_urls
     
     def _fetch_and_parse(self):
-        self._parse_article()
+        self.parse_article()
 
-    def _parse_article(self):
+    def parse_article(self):
         # 使用非 headless 模式（可視化）
         options = Options()
         options.add_argument("--headless")
@@ -449,15 +515,15 @@ class DeutscheWelle (News):
             soup = BeautifulSoup(html, "html.parser")
 
             # Extract title
-        # def _parse_article(self,soup):
+        # def parse_article(self,soup):
             title = soup.find("h1").get_text()
-            self.title=simplifiedChineseToTraditionalChinese(title)
+            self.title=title
 
             # Extract content
             content_div = soup.find("div", class_="c17j8gzx")
             if content_div:
                 paragraphs=content_div.find_all("p")
-                self.content = simplifiedChineseToTraditionalChinese("\n".join(p.get_text(strip=True) for p in paragraphs))
+                self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
             else:
                 self.content = "No content found"
 
@@ -470,9 +536,16 @@ class DeutscheWelle (News):
 
             # Extract author
             a=soup.find('a',class_="author")
-            if a:
-                name=a.get_text()
-                self.authors.append(name)
+            author_selectors = [
+                {"selector": "a.author"},
+                {"selector":"span.author"},
+            ]
+        
+            for selector in author_selectors:
+                element = soup.select_one(selector["selector"])
+                if element:
+                    name=element.get_text()
+                    self.authors.append(name)
 
             # Extract images
             picture=soup.find("picture",class_="s9gezr6")
@@ -496,7 +569,7 @@ class DeutscheWelle (News):
 
 class HKFreePress(News):
     # Extract title
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
@@ -510,7 +583,7 @@ class HKFreePress(News):
             self.content = "No content found"
 
 class WenWeiPo(News):
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
     # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
@@ -555,7 +628,7 @@ class WenWeiPo(News):
 
 class OrientalDailyNews(News):
     """Overrides parsing logic for a different HTML structure."""
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract images
         self.images = []
         image_div = soup.find("div", class_="photo")
@@ -603,7 +676,7 @@ class OrientalDailyNews(News):
 
 class TaKungPao(News):
     """Overrides parsing logic for a different HTML structure."""
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("h1", class_="tkp_con_title")
         self.title = title_tag.get_text(strip=True) if title_tag else "No title"
@@ -619,9 +692,9 @@ class TaKungPao(News):
 
 class HK01(News):
     def _fetch_and_parse(self):
-        self._parse_article()
+        self.parse_article()
 
-    def _parse_article(self):
+    def parse_article(self):
         # 使用非 headless 模式（可視化）
         options = Options()
         options.add_argument("--headless")
@@ -711,7 +784,7 @@ class HK01(News):
         driver.quit()
 
 class InitiumMedia(News):
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
@@ -748,117 +821,8 @@ class InitiumMedia(News):
         self.authors.append(intro.find("p").get_text(strip=True).replace("端傳媒記者", "").strip())
         print("self.authors:", self.authors)
 
-
-class YahooNews(News):
-    def __init__(self, url=None):
-        super().__init__(url)
-        self.max_pages=3
-        
-
-    def get_article_urls(self):
-        max_pages=self.max_pages
-        latest_news_url = "https://tw.news.yahoo.com/tw.realnews.yahoo.com--%E6%89%80%E6%9C%89%E9%A1%9E%E5%88%A5/archive"
-        base_url = "https://tw.news.yahoo.com"
-        print(f"Loading page: {latest_news_url}")
-
-        options = Options()
-        # options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-        driver = webdriver.Chrome(options=options)
-
-        all_urls = []
-
-        try:
-            driver.get(latest_news_url)
-            # Scroll to the bottom repeatedly to load lazy content
-            scroll_step = 1000
-            total_scrolls = 5*max_pages  # You can adjust this
-
-            for i in range(total_scrolls):
-                scroll_position = scroll_step * (i + 1)
-                driver.execute_script(f"window.scrollTo(0, {scroll_position});")
-                time.sleep(0.3)  # Let content load
-
-            soup = BeautifulSoup(driver.page_source, "html.parser")
-            articles = soup.select('ul#stream-container-scroll-template li.StreamMegaItem')
-            print("articles:",articles)
-            print(f"Total articles found: {len(articles)}")
-
-            for article in articles:
-                a_tag = article.find("a")
-                href=a_tag['href']
-                print("href:",href)
-                if href:
-                    full_url = base_url + href if href.startswith("/") else href
-                    if full_url not in all_urls:
-                        all_urls.append(full_url)
-
-        finally:
-            driver.quit()
-
-
-        print(f"Total articles found: {len(all_urls)}")
-        return all_urls
-    
-    def _parse_article(self, soup):
-        # Extract title
-        title_tag = soup.find("meta", property="og:title")
-        self.title = title_tag["content"].strip() if title_tag and title_tag.has_attr("content") else "No title found"
-        print("self.title:", self.title)
-
-        # Extract images
-        self.images = []
-        image_div = soup.find("figure").find_all("img")
-        for img in image_div:
-            if img and img.has_attr("src"):
-                self.images.append(img["src"])
-        print("self.images:", self.images)
-
-        # Extract published date
-        date_div = soup.find("div", class_="caas-attr-time-style").find("time").get_text(strip=True) 
-        print("date_div:", date_div)
-        if date_div:
-            print("date_div:", date_div)
-            self.published_at = standardChineseDatetoTimestamp(date_div)
-        else:
-            self.published_at = None
-        print("self.published_at:", self.published_at)
-
-        # Extract authors
-        # self.authors = []
-        # login_div = soup.find("div", class_="articlelogin")
-        # if login_div:
-        #     h2 = login_div.find("h2")
-        #     if h2:
-        #         authors_text = h2.get_text(strip=True)
-        #         if authors_text:
-        #             for author in authors_text.split(" "):
-        #                 if author and author != "明報記者":
-        #                     self.authors.append(author.strip())
-        # print("self.authors:", self.authors)
-
-        # Extract content
-        content_div = soup.find("article")
-        if not content_div:
-            content_div = soup.find("article", class_="news-text")
-
-        if content_div:
-            promo=content_div.find_all("strong")
-            for p in promo:
-                p.decompose()
-            paragraphs = content_div.find_all("p")
-            self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
-        else:
-            self.content = "No content found"
-
 class HKCD(News):
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         self.title = soup.find("h2").get_text()
 
@@ -895,7 +859,7 @@ class HKCD(News):
                 self.images.append(image["src"])
 
 class TheEpochTimes(News):
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title = soup.find("div", class_="arttop arttop2") if soup.find("div", class_="arttop arttop2") else None
         print("title:", title)
@@ -960,7 +924,7 @@ class TheEpochTimes(News):
 
 
 class NowTV(News):
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         self.title = soup.find("h1").get_text()
 
@@ -1005,10 +969,11 @@ class NowTV(News):
 class ChineseBBC(News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="ChineseBBC"
         self.max_pages=1
         
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         all_urls=[]
         latest_news_url = "https://feeds.bbci.co.uk/zhongwen/trad/rss.xml"
@@ -1038,7 +1003,7 @@ class ChineseBBC(News):
         print(f"Total articles found: {len(all_urls)}")
         return all_urls
     
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         self.title = soup.find("h1").get_text()
 
@@ -1078,9 +1043,10 @@ class ChineseBBC(News):
 class VOC(News):
     def __init__(self, url=None):
         super().__init__(url)
+        self.media_name="VOC"
         self.max_pages=1
         
-    def get_article_urls(self):
+    def _get_article_urls(self):
         latest_news_url = "https://www.voachinese.com/z/1739"
         base_url="https://www.voachinese.com/"
         print(f"Loading page: {latest_news_url}")
@@ -1115,16 +1081,16 @@ class VOC(News):
         print(f"Total articles found: {len(all_urls)}")
         return all_urls
     
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title = soup.find("h1").get_text()
-        self.title=simplifiedChineseToTraditionalChinese(title)
+        self.title=title
 
         # Extract content
         content_div = soup.find("div", id="article-content")
         if content_div:
             paragraphs=content_div.find_all("p")
-            self.content = simplifiedChineseToTraditionalChinese("\n".join(p.get_text(strip=True) for p in paragraphs))
+            self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
         else:
             self.content = "No content found"
         
@@ -1151,7 +1117,7 @@ class VOC(News):
         print(self.images)
 
 class HKCourtNews(News):
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         print(soup.find("h1"))
         self.title = soup.find("h1").get_text()
@@ -1183,7 +1149,7 @@ class HKCourtNews(News):
         self.published_at = TheCourtNewsDateToTimestamp(time_format)
 
 class ICable(News):
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
@@ -1209,7 +1175,7 @@ class ICable(News):
         self.published_at = standardDateToTimestamp(date)
 
 class HKGovernmentNews(News):
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("h1",class_="news-title")
         print("title_tag:", title_tag)
@@ -1236,9 +1202,9 @@ class HKGovernmentNews(News):
 # It uses Vue to fetch data with JavaScript
 class OrangeNews(News):
     def _fetch_and_parse(self):
-        self._parse_article()
+        self.parse_article()
 
-    def _parse_article(self):
+    def parse_article(self):
         # 使用非 headless 模式（可視化）
         options = Options()
         options.add_argument("--headless")
@@ -1315,9 +1281,9 @@ class OrangeNews(News):
 
 class TheStandard(News):
     def _fetch_and_parse(self):
-        self._parse_article()
+        self.parse_article()
 
-    def _parse_article(self):
+    def parse_article(self):
         # 使用非 headless 模式（可視化）
         options = Options()
         options.add_argument("--headless")
@@ -1404,7 +1370,7 @@ class TheStandard(News):
         driver.quit()
 
 class HKEJ(News):
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("h1", id="article-title")
         self.title = title_tag.get_text() if title_tag else "No title found"
@@ -1446,7 +1412,7 @@ class HKEJ(News):
         print("self.content:", self.content)
 
 class HKET(News):
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
@@ -1463,7 +1429,7 @@ class HKET(News):
             self.content = "No content found"
 
 class RTHK(News):
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
@@ -1508,9 +1474,9 @@ class RTHK(News):
 
 class TheWitness(News):
     def _fetch_and_parse(self):
-        self._parse_article()
+        self.parse_article()
 
-    def _parse_article(self):
+    def parse_article(self):
         options = Options()
         options.add_argument("--headless")
         options.add_argument("--disable-gpu")
@@ -1598,11 +1564,11 @@ class TheWitness(News):
 # They use anti-bot mechanism to prevent web scraping
 class InMediaHK(News):
     def _fetch_and_parse(self):
-        self._parse_article()
+        self.parse_article()
 
-    def _parse_article(self):
+    def parse_article(self):
         # 使用非 headless 模式（可視化）
-        options = undetected_chromedriver.ChromeOptions()
+        options = Options()
         options.add_argument("--disable-gpu")
         options.add_argument("--no-sandbox")
         options.add_argument("--window-size=1280,800")
@@ -1656,7 +1622,7 @@ class InMediaHK(News):
 
 # China News Media
 class PeopleDaily(News):
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         self.title = soup.find("div",class_="col col-1 fl").find("h1").get_text()
 
@@ -1671,7 +1637,7 @@ class PeopleDaily(News):
 
 
 class XinhuaNewsAgency(News):
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         self.title = soup.find("h1").get_text()
 
@@ -1685,7 +1651,7 @@ class XinhuaNewsAgency(News):
             self.content = "No content found"
 
 class GlobalTimes(News):
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         self.title = soup.find("div",class_="article_title").get_text()
 
@@ -1699,7 +1665,7 @@ class GlobalTimes(News):
         #     self.content = "No content found"
 
 class CCTV(News):
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         self.title = soup.find("div",class_="article_title").get_text()
 
@@ -1714,7 +1680,7 @@ class UnitedDailyNews(News):
         self.media_name="UnitedDailyNews"
         self.max_pages=1
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         latest_news_url = "https://money.udn.com/rank/newest/1001/0/1?from=edn_navibar"
         base_url="https://money.udn.com"
@@ -1774,7 +1740,7 @@ class UnitedDailyNews(News):
         print(f"Total articles found: {len(all_urls)}")
         return all_urls
         
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag and title_tag.has_attr("content") else "No title found"
@@ -1882,7 +1848,7 @@ class LibertyTimesNet(News):
         self.media_name="LibertyTimesNet"
         self.max_pages=1
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         latest_news_url = "https://news.ltn.com.tw/list/breakingnews"
         print(f"Loading page: {latest_news_url}")
@@ -1941,7 +1907,7 @@ class LibertyTimesNet(News):
         print(f"Total articles found: {len(all_urls)}")
         return all_urls
     
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
@@ -1983,16 +1949,19 @@ class LibertyTimesNet(News):
         # Extract images
         image_selectors=[
              {"selector": "div.whitecon.article[data-page='1']"}, 
+             {"selector":"div[data-desc='內文'] div.text"},
              {"selector": "div.article-wrap div.text","data-desc":"內容頁"}, 
              {"selector": "div.text"}, 
         ]
         for selector in image_selectors:
             element=soup.select_one(selector["selector"])
-            # print("element:",element)
+            print("selector:",selector)
+            print("element:",element)
             isReadyToBreak=False
             if element:
                 images=element.find_all("img")
                 for image in images:
+                    print("image:",image)
                     self.images.append(image["data-src"])
                 isReadyToBreak=True
             if isReadyToBreak==True:
@@ -2001,10 +1970,13 @@ class LibertyTimesNet(News):
         # Extract authors (no authors)
         authors_selectors=[
              {"selector": "div.whitecon.article[data-page='1']"}, 
-             {"selector": "div.whitecon.article[itemprop='articleBody'] .text.boxText"}
+             {"selector": "div.whitecon.article[itemprop='articleBody'] .text.boxText"},
+             {"selector":"div[data-desc='內文'] div.text"}
         ]
         for selector in authors_selectors:
             element = soup.select_one(selector["selector"])
+            print("element:",element)
+            # print("element:",element)
             isOutLoopReadyToBreak = False
 
             if element:
@@ -2037,12 +2009,12 @@ class ChinaTimes(News):
         super().__init__(url)
         self.media_name="ChinaTimes"
         self.max_workers=5
-        self.max_pages=5
+        self.max_pages=2
 
     def _fetch_and_parse(self):
-        self._parse_article()
+        self.parse_article()
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         def fetch_page_articles(page):
             latest_news_url= "https://www.chinatimes.com/realtimenews/?chdtv"
@@ -2101,7 +2073,7 @@ class ChinaTimes(News):
 
         return all_urls
 
-    def _parse_article(self):
+    def parse_article(self):
         # 使用非 headless 模式（可視化）
         options = Options()
         options.add_argument("--headless")
@@ -2212,7 +2184,7 @@ class CNA(News):
         super().__init__(url)
         self.media_name="CNA"
         self.max_pages=1
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         latest_news_url = "https://www.cna.com.tw/list/aall.aspx"
         print(f"Loading page: {latest_news_url}")
@@ -2274,7 +2246,7 @@ class CNA(News):
         print(f"Total articles found: {len(all_urls)}")
         return all_urls
     
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         self.title = soup.find("h1").get_text()
 
@@ -2317,12 +2289,12 @@ class CNA(News):
                     text=paragraph.get_text()
                     print("text:",text)
                     # 1. First, try to extract the journalist name (primary author)
-                    journalist_match = re.search(r'（中央社記者([\u4e00-\u9fff]{2,4})', text)
+                    journalist_match = re.search(r'（中央社記者([\u4e00-\u9fff]{2,3})', text)
                     if journalist_match:
                         self.authors.append(journalist_match.group(1))
                     
                     # 2. Fallback: Check for editor names (only if no journalist is found)
-                    editor_match = re.search(r'編輯：([\u4e00-\u9fff]{2,4})', text)
+                    editor_match = re.search(r'編輯：([\u4e00-\u9fff]{2,3})', text)
                     if editor_match and not self.authors:  # Avoid adding editors if journalist exists
                         self.authors.append(editor_match.group(1))
                 break
@@ -2332,7 +2304,7 @@ class TaiwanEconomicTimes(News):
         super().__init__(url)
         self.media_name="TaiwanEconomicTimes"
 
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         self.title = soup.find("h1").get_text()
 
@@ -2389,7 +2361,7 @@ class PTSNews(News):
         self.media_name="PTSNews"
         self.max_pages=1
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         latest_news_url = "https://news.pts.org.tw/dailynews"
         base_url="https://news.pts.org.tw"
@@ -2450,7 +2422,7 @@ class PTSNews(News):
         print(f"Total articles found: {len(all_urls)}")
         return all_urls
     
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         self.title = soup.find("h1").get_text()
 
@@ -2508,12 +2480,12 @@ class CTEE(News):
     def __init__(self, url=None):
         super().__init__(url)
         self.media_name="CTEE"
-        self.max_pages=2
+        self.max_pages=1
 
     def _fetch_and_parse(self):
-        self._parse_article()
+        self.parse_article()
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         latest_news_url = "https://www.ctee.com.tw/livenews"
         base_url="https://www.ctee.com.tw"
@@ -2579,7 +2551,7 @@ class CTEE(News):
         print(f"Total articles found: {len(all_urls)}")
         return all_urls
 
-    def _parse_article(self):
+    def parse_article(self):
         # 使用非 headless 模式（可視化）
         options = Options()
         options.add_argument("--headless")
@@ -2676,7 +2648,7 @@ class MyPeopleVol(News):
         super().__init__(url)
         self.media_name="MyPeopleVol"
         self.max_pages=2
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         def fetch_page_articles(page):
             base_url = "https://www.mypeoplevol.com"
@@ -2734,7 +2706,7 @@ class MyPeopleVol(News):
 
         return all_urls
     
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # remove promo
         [s.decompose() for s in soup.select('[class*="tdm-descr"]')]
 
@@ -2758,16 +2730,17 @@ class MyPeopleVol(News):
             journalist_match = re.search(r'【記者([\u4e00-\u9fff]{2,3})', text)
             if journalist_match:
                 self.authors.append(journalist_match.group(1))
+            journalist_match= re.search(r'〔民眾黨([\u4e00-\u9fff]{2,3})', text)
+            if journalist_match and len(self.authors)==0:
+                self.authors.append(journalist_match.group(1))
             journalist_match= re.search(r'【民眾網([\u4e00-\u9fff]{2,3})', text)
-            if journalist_match:
+            if journalist_match and len(self.authors)==0:
                 self.authors.append(journalist_match.group(1))
             journalist_match= re.search(r'【民眾新聞網([\u4e00-\u9fff]{2,3})', text)
-            if journalist_match:
+            if journalist_match and len(self.authors)==0:
                 self.authors.append(journalist_match.group(1))
             journalist_match= re.search(r'【民眾新聞([\u4e00-\u9fff]{2,3})', text)
-            if journalist_match:
-                self.authors.append(journalist_match.group(1))
-                
+            if journalist_match and len(self.authors)==0:
                 self.authors.append(journalist_match.group(1))
             # images 
             image_selectors = [
@@ -2814,7 +2787,7 @@ class TaiwanTimes(News):
         self.max_pages=2
         self.max_workers = 1  # Override field in child class
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         def fetch_article_url(index, max_pages, start_url, chrome_options):
             driver = webdriver.Chrome(options=chrome_options)
@@ -2906,9 +2879,9 @@ class TaiwanTimes(News):
         return article_urls
     
     def _fetch_and_parse(self):
-        self._parse_article()
+        self.parse_article()
 
-    def _parse_article(self):
+    def parse_article(self):
         # 使用非 headless 模式（可視化）
         options = Options()
         options.add_argument("--headless")
@@ -3003,7 +2976,7 @@ class ChinaDailyNews(News):
         super().__init__(url)
         self.media_name="ChinaDailyNews"
 
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
@@ -3068,7 +3041,7 @@ class SETN(News):
         self.max_workers=5
         
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         latest_news_url = "https://www.setn.com/viewall.aspx"
         base_url = "https://www.setn.com"
@@ -3130,7 +3103,7 @@ class SETN(News):
         print(f"Total articles found: {len(all_urls)}")
         return all_urls
     
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
@@ -3200,7 +3173,7 @@ class NextAppleNews(News):
         self.max_workers=5
         
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         def fetch_page_articles(page):
             base_url = "https://tw.nextapple.com"
@@ -3268,7 +3241,7 @@ class NextAppleNews(News):
 
         return all_urls
     
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
@@ -3307,7 +3280,7 @@ class TTV(News):
         self.media_name="TTV"
         self.max_pages=1
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         latest_news_url = "https://news.ttv.com.tw/realtime"
         base_url="https://news.ttv.com.tw"
@@ -3367,7 +3340,7 @@ class TTV(News):
         print(f"Total articles found: {len(all_urls)}")
         return all_urls
     
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
@@ -3391,6 +3364,8 @@ class TTV(News):
                 match = re.search(r'責任編輯／(.*)', text.get_text())  # Capture everything after ／
                 if match is None:
                     match = re.search(r'責任編輯/(.*)', text.get_text())  # Capture everything after ／
+                if match is None:
+                    match = re.search(r'（記者([\u4e00-\u9fff]{2,3})(?:／)?', text.get_text())  # Capture everything after ／
                 if match:
                     name = match.group(1).strip()  # Get the captured group and remove whitespace
                     self.authors.append(name)
@@ -3426,7 +3401,7 @@ class MirrorMedia(News):
         self.max_pages=2
         
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         latest_news_url = "https://www.mirrormedia.mg"
         print(f"Loading page: {latest_news_url}")
@@ -3486,9 +3461,9 @@ class MirrorMedia(News):
         return all_urls
     
     def _fetch_and_parse(self):
-        self._parse_article()
+        self.parse_article()
 
-    def _parse_article(self):
+    def parse_article(self):
         # 使用非 headless 模式（可視化）
         options = Options()
         options.add_argument("--headless")
@@ -3554,7 +3529,16 @@ class MirrorMedia(News):
                 tag="div"
             if container==None and soup.find("section",class_="external-article-content__Wrapper-sc-8f3f1b36-0 cWifPf"):
                 container=soup.find("section",class_="external-article-content__Wrapper-sc-8f3f1b36-0 cWifPf")
-                self.origin=soup.find("div",class_="external-article-info__ExternalCredit-sc-83f18676-4 ryMAg").find("span").get_text()
+                origin_div=soup.find("div",class_="external-article-info__ExternalCredit-sc-83f18676-4 ryMAg")
+                if origin_div:
+                    origin_span=origin_div.find("span")
+                    if origin_span:
+                        origin=origin_span.get_text()
+                        if origin:
+                            try:
+                                self.origin=chineseMediaTranslationUtil.map_chinese_media_to_enum(origin)
+                            except ValueError as e:
+                                raise UnmappedMediaNameError(origin) from e
                 tag="p"
             print("container:",container)
             all_unique_texts = []
@@ -3627,7 +3611,7 @@ class NowNews(News):
         self.max_pages=2
         self.max_workers=5
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         def fetch_page_articles(page):
             latest_news_url = f"https://www.nownews.com/cat/breaking/page/{page}"
@@ -3693,7 +3677,7 @@ class NowNews(News):
 
         return all_urls
     
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
@@ -3722,6 +3706,14 @@ class NowNews(News):
         author_a=soup.find("a",{"data-sec":"reporter"})
         if author_a:
             self.authors.append(author_a.get_text().strip())
+        author_div=soup.find("div",class_="info")
+        if author_div:
+            author_p=author_div.find("p")
+            if author_p:
+                text=author_p.get_text()
+                journalist_match = re.search(r'記者([\u4e00-\u9fff]{2,3})', text)
+                if journalist_match and journalist_match.group(1) not in self.authors:
+                    self.authors.append(journalist_match.group(1))
 
         # Extract images
         content_div=soup.find("div",class_="containerBlk mb-1")
@@ -3739,7 +3731,7 @@ class StormMedia(News):
         self.max_workers=5
         
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         def fetch_page_articles(page):
             base_url = "https://www.storm.mg"
@@ -3807,7 +3799,7 @@ class StormMedia(News):
 
         return all_urls
     
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
@@ -3840,7 +3832,7 @@ class TVBS(News):
         self.media_name="TVBS"
         self.max_pages=1
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         latest_news_url = "https://news.tvbs.com.tw/realtime"
         base_url="https://news.tvbs.com.tw"
@@ -3880,7 +3872,7 @@ class TVBS(News):
         print(f"Total articles found: {len(all_urls)}")
         return all_urls
     
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
@@ -3924,14 +3916,23 @@ class TVBS(News):
             print("Published At:", published_at)
         
         # Extract images
-        print("article_new:",soup.find("div",class_="article_new"))
         content_div=soup.find("div",class_="article_new")
         if content_div:
             image_div=content_div.find("div",class_="img_box")
             print("image_div:",image_div)
             if image_div:
-                image=image_div.find("img")["src"]
-                self.images.append(image)
+                image=image_div.find("img")
+                if image:
+                    self.images.append(image["src"])
+        content_div=soup.find("div",{"itemprop":"articleBody"})
+        if content_div:
+            image_div=content_div.find_all("div",class_="img")
+            print("image_div:",image_div)
+            if image_div:
+                for img_div in image_div:
+                    image=img_div.find("img")
+                    if image:
+                        self.images.append(image["data-original"])
         print("image:",self.images)
 
 
@@ -3942,7 +3943,7 @@ class EBCNews(News):
         self.max_pages=2
         
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         latest_news_url = "https://news.ebc.net.tw/realtime"
         base_url = "https://news.ebc.net.tw"
@@ -3991,7 +3992,7 @@ class EBCNews(News):
         print(f"Total articles found: {len(all_urls)}")
         return all_urls
     
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
@@ -4051,7 +4052,7 @@ class ETtoday(News):
         self.media_name="ETtoday"
         self.max_pages=1
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         def fetch_page_articles(page):
             latest_news_url= "https://www.ettoday.net/news/news-list.htm"
@@ -4108,8 +4109,10 @@ class ETtoday(News):
 
         return all_urls
     
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
+        soup.find("h1").find("div").get_text()
+        print("Extracting shit!")
         title_selectors=[
              {"selector": "h1.title", "text": True}, 
              {"selector":"h1.title_article","text": True}
@@ -4168,11 +4171,14 @@ class ETtoday(News):
 
         # Extract images
         self.images = []
-        image_div = soup.find("div",class_="story").find("img")
-        print("image_div:",image_div)
-        if image_div:
-            self.images.append(image_div["src"])
-        print("self.images:", self.images)
+        story_div = soup.find("div",class_="story")
+        if story_div:
+            img=story_div.find("img")
+            if img:
+                print("image_div:",img)
+                if img:
+                    self.images.append(img["src"])
+                print("self.images:", self.images)
 
 class NewTalk(News):
     def __init__(self, url=None):
@@ -4182,7 +4188,7 @@ class NewTalk(News):
         self.max_workers=5
         
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         today = datetime.datetime.today().strftime('%Y-%m-%d')
         def fetch_page_articles(page):
@@ -4247,7 +4253,7 @@ class NewTalk(News):
 
         return all_urls
     
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
@@ -4306,7 +4312,7 @@ class CTINews(News):
         super().__init__(url)
         self.media_name="CTINews"
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         latest_news_url = "https://ctinews.com/news/topics/KDdek5vgXx"
         base_url="https://ctinews.com"
         print(f"Loading page: {latest_news_url}")
@@ -4375,7 +4381,7 @@ class CTINews(News):
 
         print(f"Total articles found: {len(all_urls)}")
         return all_urls
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
@@ -4413,7 +4419,7 @@ class FTV(News):
         self.max_pages=1
         
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         latest_news_url = "https://www.ftvnews.com.tw/realtime/"
         base_url = "https://www.ftvnews.com.tw"
@@ -4475,9 +4481,9 @@ class FTV(News):
         return all_urls
     
     def _fetch_and_parse(self):
-        self._parse_article()
+        self.parse_article()
 
-    def _parse_article(self):
+    def parse_article(self):
         # 使用非 headless 模式（可視化）
         options = Options()
         options.add_argument("--headless")
@@ -4573,7 +4579,7 @@ class TaiwanNews(News):
         self.max_pages=2
         self.max_workers = 1  # Override field in child class
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         def fetch_page_articles(page):
             page_urls=[]
@@ -4626,9 +4632,9 @@ class TaiwanNews(News):
         return all_urls
     
     def _fetch_and_parse(self):
-        self._parse_article()
+        self.parse_article()
 
-    def _parse_article(self):
+    def parse_article(self):
         # 使用非 headless 模式（可視化）
         options = Options()
         options.add_argument("--headless")
@@ -4715,7 +4721,7 @@ class CTWant(News):
         self.max_pages=2
         self.max_workers = 1  # Override field in child class
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         def fetch_page_articles(page):
             page_urls=[]
@@ -4768,7 +4774,7 @@ class CTWant(News):
 
         return all_urls
     
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_h1 = soup.find("h1", class_="p-article__title")
         self.title = title_h1.get_text().strip() if title_h1 else "No title found"
@@ -4807,7 +4813,7 @@ class TSSDNews(News):
         self.max_pages=2
         self.max_workers = 1  # Override field in child class
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         max_workers=self.max_workers
         def fetch_page_articles(page):
@@ -4818,7 +4824,7 @@ class TSSDNews(News):
 
             # Each thread must create its own driver
             options = Options()
-            options.add_argument("--headless")
+            # options.add_argument("--headless")
             options.add_argument("--disable-gpu")
             options.add_argument("--no-sandbox")
             options.add_argument("--window-size=1280,800")
@@ -4861,9 +4867,9 @@ class TSSDNews(News):
         return all_urls
     
     def _fetch_and_parse(self):
-        self._parse_article()
+        self.parse_article()
 
-    def _parse_article(self):
+    def parse_article(self):
         # 使用非 headless 模式（可視化）
         base_url="https://www.tssdnews.com.tw"
         options = Options()
@@ -4959,7 +4965,7 @@ class CTS(News):
         self.max_pages=1
         self.max_workers = 5  # Override field in child class
 
-    def get_article_urls(self):
+    def _get_article_urls(self):
         max_pages=self.max_pages
         def fetch_page_articles(page):
             page_urls=[]
@@ -5024,7 +5030,7 @@ class CTS(News):
 
         return all_urls
     
-    def _parse_article(self, soup):
+    def parse_article(self, soup):
         # Extract title
         title_h1 = soup.find("h1", class_="artical-title")
         self.title = title_h1.get_text().strip() if title_h1 else "No title found"
@@ -5063,5 +5069,138 @@ class CTS(News):
             news_source=news_src_p.get_text()
             if "華視新聞" not in news_source:
                 news_source=news_source.replace("新聞來源：","").strip()
-                self.origin=news_source
+                try:
+                    self.origin=chineseMediaTranslationUtil.map_chinese_media_to_enum(news_source)
+                except ValueError as e:
+                    raise UnmappedMediaNameError(news_source) from e
 
+class YahooNews(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.media_name="YahooNews"
+        self.max_pages=2
+        
+
+    def _get_article_urls(self):
+        def scroll_and_collect(driver, url, base_url):
+            driver.get(url)
+            scroll_step = 1000
+            total_scrolls = 5 * self.max_pages
+            for i in range(total_scrolls):
+                driver.execute_script(f"window.scrollTo(0, {scroll_step * (i + 1)});")
+                time.sleep(0.3)
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            articles = soup.select('ul#stream-container-scroll-template li.StreamMegaItem')
+            print(f"✅ {len(articles)} articles found at: {url}")
+            urls = []
+            for article in articles:
+                a_tag = article.find("a")
+                if a_tag and a_tag.get("href"):
+                    href = a_tag["href"]
+                    full_url = base_url + href if href.startswith("/") else href
+                    if full_url not in urls:
+                        urls.append(full_url)
+            return urls
+
+        # Your two target Yahoo URLs
+        archive_urls = [
+            "https://tw.news.yahoo.com/tw.realnews.yahoo.com--%E6%89%80%E6%9C%89%E9%A1%9E%E5%88%A5/archive",
+            "https://tw.news.yahoo.com/archive"
+        ]
+        base_url = "https://tw.news.yahoo.com"
+
+        # Set up Selenium Chrome options
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument(
+            "user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+        )
+
+        all_urls = []
+        driver = webdriver.Chrome(options=options)
+
+        try:
+            for url in archive_urls:
+                new_urls = scroll_and_collect(driver, url, base_url)
+                for u in new_urls:
+                    if u not in all_urls:
+                        all_urls.append(u)
+        finally:
+            driver.quit()
+
+        print(f"🎯 Total unique articles collected: {len(all_urls)}")
+        return all_urls
+
+    
+    def parse_article(self, soup):
+        # Extract title
+        title_tag = soup.find("meta", property="og:title")
+        self.title = title_tag["content"].strip() if title_tag and title_tag.has_attr("content") else "No title found"
+        print("self.title:", self.title)
+
+        # Extract images
+        self.images = []
+        image_div = soup.find("figure").find_all("img")
+        for img in image_div:
+            if img and img.has_attr("src"):
+                self.images.append(img["src"])
+        print("self.images:", self.images)
+
+        # Extract published date
+        date_div = soup.find("div", class_="caas-attr-time-style")
+        if date_div:
+            date_time=date_div.find("time")
+            if date_time:
+                date=date_time.get_text(strip=True) 
+                if date:
+                    print("date:", date)
+                    self.published_at = standardChineseDatetoTimestamp(date)
+        if self.published_at is None:
+            print("self.published_at:", self.published_at)
+        
+
+        # Extract origin
+        image_div=soup.find("div",class_="mb-2 flex items-center justify-between lg:justify-start")
+        if image_div:
+            image=image_div.find("img")
+            if image:
+                alt=image['alt']
+                if alt and "Yahoo新聞" in alt:
+                    try:
+                        self.origin=chineseMediaTranslationUtil.map_chinese_media_to_enum(alt)
+                    except ValueError as e:
+                        raise UnmappedMediaNameError(alt) from e
+        
+
+        # Extract authors
+        # self.authors = []
+        # login_div = soup.find("div", class_="articlelogin")
+        # if login_div:
+        #     h2 = login_div.find("h2")
+        #     if h2:
+        #         authors_text = h2.get_text(strip=True)
+        #         if authors_text:
+        #             for author in authors_text.split(" "):
+        #                 if author and author != "明報記者":
+        #                     self.authors.append(author.strip())
+        # print("self.authors:", self.authors)
+
+        # Extract content
+        content_div = soup.find("article")
+        if not content_div:
+            content_div = soup.find("article", class_="news-text")
+
+        if content_div:
+            promo=content_div.find_all("strong")
+            for p in promo:
+                p.decompose()
+            paragraphs = content_div.find_all("p")
+            self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
+        else:
+            self.content = "No content found"

@@ -60,6 +60,12 @@ class MediaNameEnum(str, Enum):
     NewTalk = "NewTalk"
     FTV = "FTV"
 
+class ErrorTypeEnum(str, Enum):
+    UNMAPPED_MEDIA = "unmapped_media"
+    PARSING_FAILURE = "parsing_failure"
+    PARSING_ERROR = "parsing_error"
+    ZERO_URLS_FETCHED = "zero_urls_fetched"
+    OTHERS = "other"
 
 OriginEnum = Enum(
     'OriginEnum',

@@ -28,7 +28,7 @@ async def get_filtered_news(filter, db):
         query = query.where(and_(*conditions))
     print("query:",query)
     result = await db.execute(query)
-    data=result.scalars().all()
+    data:List[NewsEntity]=result.scalars().all()
     print("data:",data)
     return data
 
@@ -36,7 +36,7 @@ async def store_all_articles(articles:List[NewsEntity],db):
     print("storing!!!!!!!")
     # Check if content is null
     
-     # Prepare list of dictionaries for bulk insert
+    # Prepare list of dictionaries for bulk insert
     values_to_insert = []
     for article in articles:
         values_to_insert.append({

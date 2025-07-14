@@ -17,6 +17,7 @@ class NewsRequest(BaseModel):
 
 class NewsResponse(BaseModel):
     url: Optional[HttpUrl]
+    media_name: Optional[str]
     title:  Optional[str]
     origin: Optional[str]
     content:  Optional[str]
@@ -25,4 +26,4 @@ class NewsResponse(BaseModel):
     images: List[str] = []
     # correctly convert a SQLAlchemy ORM object into a JSON response.
     class Config:
-        from_attributes = True
+        orm_mode = True

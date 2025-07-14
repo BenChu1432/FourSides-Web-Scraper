@@ -91,10 +91,10 @@
       "Properties": {
         "Code": {
           "S3Bucket": "serverless-framework-deployments-ap-southeast-1-c98ba93a-9727",
-          "S3Key": "serverless/foursides-poc/poc/1751528425247-2025-07-03T07:40:25.247Z/foursides-poc.zip"
+          "S3Key": "serverless/foursides-poc/poc/1752290341198-2025-07-12T03:19:01.198Z/foursides-poc.zip"
         },
         "Handler": "server.handler",
-        "Runtime": "python3.12",
+        "Runtime": "python3.11",
         "FunctionName": "foursides-poc-poc-api",
         "MemorySize": 1024,
         "Timeout": 29,
@@ -116,14 +116,14 @@
         "ApiLogGroup"
       ]
     },
-    "ApiLambdaVersionaAXafwPHgilSa4UPK1z2mRkqlP59ZSo2JaVOtNpeJc": {
+    "ApiLambdaVersionGtPdVhD31VICsst4DHRXS4J3XKooLLLhn7qe8Zu4": {
       "Type": "AWS::Lambda::Version",
       "DeletionPolicy": "Retain",
       "Properties": {
         "FunctionName": {
           "Ref": "ApiLambdaFunction"
         },
-        "CodeSha256": "RaqN9ZG7JnbEIX27RyGIb0KopB9x8sBsdN4E3SyKoNY="
+        "CodeSha256": "L6vLPqpG+9RZhEM6sYo7skjfPWiWt1TQlaWC4+AQiB4="
       }
     },
     "ApiGatewayRestApi": {
@@ -341,7 +341,7 @@
         "ApiLambdaPermissionApiGateway"
       ]
     },
-    "ApiGatewayDeployment1751528409540": {
+    "ApiGatewayDeployment1752290314617": {
       "Type": "AWS::ApiGateway::Deployment",
       "Properties": {
         "RestApiId": {
@@ -404,7 +404,7 @@
     "ApiLambdaFunctionQualifiedArn": {
       "Description": "Current Lambda function version",
       "Value": {
-        "Ref": "ApiLambdaVersionaAXafwPHgilSa4UPK1z2mRkqlP59ZSo2JaVOtNpeJc"
+        "Ref": "ApiLambdaVersionGtPdVhD31VICsst4DHRXS4J3XKooLLLhn7qe8Zu4"
       },
       "Export": {
         "Name": "sls-foursides-poc-poc-ApiLambdaFunctionQualifiedArn"

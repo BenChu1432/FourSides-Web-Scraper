@@ -6,7 +6,7 @@
     },
     "provider": {
       "name": "aws",
-      "runtime": "python3.12",
+      "runtime": "python3.11",
       "stage": "poc",
       "region": "ap-southeast-1",
       "timeout": 29,
@@ -113,10 +113,10 @@
             "Properties": {
               "Code": {
                 "S3Bucket": "serverless-framework-deployments-ap-southeast-1-c98ba93a-9727",
-                "S3Key": "serverless/foursides-poc/poc/1751528425247-2025-07-03T07:40:25.247Z/foursides-poc.zip"
+                "S3Key": "serverless/foursides-poc/poc/1752290341198-2025-07-12T03:19:01.198Z/foursides-poc.zip"
               },
               "Handler": "server.handler",
-              "Runtime": "python3.12",
+              "Runtime": "python3.11",
               "FunctionName": "foursides-poc-poc-api",
               "MemorySize": 1024,
               "Timeout": 29,
@@ -138,14 +138,14 @@
               "ApiLogGroup"
             ]
           },
-          "ApiLambdaVersionaAXafwPHgilSa4UPK1z2mRkqlP59ZSo2JaVOtNpeJc": {
+          "ApiLambdaVersionGtPdVhD31VICsst4DHRXS4J3XKooLLLhn7qe8Zu4": {
             "Type": "AWS::Lambda::Version",
             "DeletionPolicy": "Retain",
             "Properties": {
               "FunctionName": {
                 "Ref": "ApiLambdaFunction"
               },
-              "CodeSha256": "RaqN9ZG7JnbEIX27RyGIb0KopB9x8sBsdN4E3SyKoNY="
+              "CodeSha256": "L6vLPqpG+9RZhEM6sYo7skjfPWiWt1TQlaWC4+AQiB4="
             }
           },
           "ApiGatewayRestApi": {
@@ -363,7 +363,7 @@
               "ApiLambdaPermissionApiGateway"
             ]
           },
-          "ApiGatewayDeployment1751528409540": {
+          "ApiGatewayDeployment1752290314617": {
             "Type": "AWS::ApiGateway::Deployment",
             "Properties": {
               "RestApiId": {
@@ -426,7 +426,7 @@
           "ApiLambdaFunctionQualifiedArn": {
             "Description": "Current Lambda function version",
             "Value": {
-              "Ref": "ApiLambdaVersionaAXafwPHgilSa4UPK1z2mRkqlP59ZSo2JaVOtNpeJc"
+              "Ref": "ApiLambdaVersionGtPdVhD31VICsst4DHRXS4J3XKooLLLhn7qe8Zu4"
             },
             "Export": {
               "Name": "sls-foursides-poc-poc-ApiLambdaFunctionQualifiedArn"
@@ -464,11 +464,10 @@
     },
     "custom": {
       "pythonRequirements": {
-        "fileName": "requirements.txt",
         "dockerizePip": true,
-        "zip": true,
+        "platform": "linux/amd64",
         "slim": true,
-        "invalidateCaches": true
+        "strip": false
       }
     },
     "plugins": [
@@ -532,9 +531,9 @@
         "package": {},
         "memory": 1024,
         "timeout": 29,
-        "runtime": "python3.12",
+        "runtime": "python3.11",
         "vpc": {},
-        "versionLogicalId": "ApiLambdaVersionaAXafwPHgilSa4UPK1z2mRkqlP59ZSo2JaVOtNpeJc"
+        "versionLogicalId": "ApiLambdaVersionGtPdVhD31VICsst4DHRXS4J3XKooLLLhn7qe8Zu4"
       }
     },
     "configValidationMode": "warn",
@@ -552,15 +551,31 @@
       },
       "custom": {
         "$ref": "$[\"service\"][\"custom\"]"
+      },
+      "package": {
+        "exclude": [
+          "node_modules/**",
+          ".venv/**",
+          "__pycache__/**",
+          ".serverless/**",
+          ".pytest_cache/**",
+          ".DS_Store",
+          "tests/**",
+          "requirements.zip"
+        ],
+        "artifactsS3KeyDirname": "serverless/foursides-poc/poc/code-artifacts",
+        "deploymentBucket": "serverless-framework-deployments-ap-southeast-1-c98ba93a-9727",
+        "artifact": "/Users/chuben/Desktop/Coding Projects/FourSides-Web-Scraper/.serverless/foursides-poc.zip",
+        "artifactDirectoryName": "serverless/foursides-poc/poc/1752290341198-2025-07-12T03:19:01.198Z"
       }
     },
     "appId": null,
     "orgId": null,
     "layers": {},
-    "artifact": "/Users/chuben/Desktop/Coding Projects/FourSides-Backend/.serverless/foursides-poc.zip"
+    "artifact": "/Users/chuben/Desktop/Coding Projects/FourSides-Web-Scraper/.serverless/foursides-poc.zip"
   },
   "package": {
-    "artifactDirectoryName": "serverless/foursides-poc/poc/1751528425247-2025-07-03T07:40:25.247Z",
+    "artifactDirectoryName": "serverless/foursides-poc/poc/1752290341198-2025-07-12T03:19:01.198Z",
     "artifact": "foursides-poc.zip"
   }
 }
