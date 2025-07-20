@@ -5,20 +5,25 @@ from sqlalchemy import select, and_
 from typing import List
 from sqlalchemy.dialects.postgresql import insert
 
-async def filter_existing_articles(articles: List[NewsEntity], db) -> List[NewsEntity]:
-    urls = [article.url for article in articles if article.url]
+async def filter_existing_articles(urls: List[str], db) -> List[NewsEntity]:
     if not urls:
-        return articles
+        return []
 
-    # Fetch existing URLs from DB
-    existing_urls_query = select(NewsEntity.url).where(NewsEntity.url.in_(urls))
+    # Step 1: Remove duplicates from the input list
+    unique_urls = list(set(urls))  # Converts to set to deduplicate, then back to list
+
+    # Step 2: Fetch existing URLs from the DB
+    existing_urls_query = select(NewsEntity.url).where(NewsEntity.url.in_(unique_urls))
     result = await db.execute(existing_urls_query)
     existing_urls = set(result.scalars().all())
 
-    # Return only articles not in DB
-    filtered_articles = [article for article in articles if article.url not in existing_urls]
-    print(f"Filtered out {len(articles) - len(filtered_articles)} existing articles")
+    # Step 3: Filter out URLs already in the DB
+    filtered_articles = [url for url in unique_urls if url not in existing_urls]
+
+    print(f"Filtered out {len(urls) - len(filtered_articles)} existing or duplicate URLs")
+    print("unique urls:",filtered_articles)
     return filtered_articles
+
 
 
 async def get_filtered_news(filter, db):

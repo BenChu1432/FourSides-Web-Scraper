@@ -5,7 +5,6 @@ from app.models.newsEntity import NewsEntity
 
 
 TOGETHER_AI_API_KEY = os.getenv("TOGETHER_AI_API_KEY")
-print("TOGETHER_AI_API_KEY:",TOGETHER_AI_API_KEY)
 
 client = Together(api_key=TOGETHER_AI_API_KEY)
 

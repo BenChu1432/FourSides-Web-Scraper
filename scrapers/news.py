@@ -70,23 +70,6 @@ class News(ABC):
         options.add_argument(
             "user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
         )
-
-        # Log config to CloudWatch for verification
-        # print("👀 /opt contents:", os.listdir("/opt"))
-        # print("👀 Checking chromedriver manually...")
-        # print("  Exists:", os.path.exists("/opt/chromedriver"))
-        # print("  Is file:", os.path.isfile("/opt/chromedriver"))
-        # # same for headless-chromium
-        # print("👀 Checking chromium binary...")
-        # print("  Exists:", os.path.exists("/opt/headless-chromium"))
-        # print("  Is file:", os.path.isfile("/opt/headless-chromium"))
-        # print("  Is executable:", os.access("/opt/headless-chromium", os.X_OK))
-        # print("👀 chromedriver exists:", os.path.exists(chromedriver_path))
-        # print("👀 chromedriver is executable:", os.access(chromedriver_path, os.X_OK))
-        # print(f"🧭 Chrome binary path: {chrome_path}")
-        # print(f"🧭 Chromedriver path: {chromedriver_path}")
-        # print(f"✅ options.binary_location set")
-        
         return options
 
     def get_chrome_driver(self):
@@ -94,23 +77,6 @@ class News(ABC):
         options=self.get_chrome_options()
 
         driver = webdriver.Chrome(options=options)
-
-        # Log config to CloudWatch for verification
-        # print("👀 /opt contents:", os.listdir("/opt"))
-        # print("👀 Checking chromedriver manually...")
-        # print("  Exists:", os.path.exists("/opt/chromedriver"))
-        # print("  Is file:", os.path.isfile("/opt/chromedriver"))
-        # # same for headless-chromium
-        # print("👀 Checking chromium binary...")
-        # print("  Exists:", os.path.exists("/opt/headless-chromium"))
-        # print("  Is file:", os.path.isfile("/opt/headless-chromium"))
-        # print("  Is executable:", os.access("/opt/headless-chromium", os.X_OK))
-        # print("👀 chromedriver exists:", os.path.exists(chromedriver_path))
-        # print("👀 chromedriver is executable:", os.access(chromedriver_path, os.X_OK))
-        # print(f"🧭 Chrome binary path: {chrome_path}")
-        # print(f"🧭 Chromedriver path: {chromedriver_path}")
-        # print(f"✅ options.binary_location set")
-        
         return driver
 
     @abstractmethod

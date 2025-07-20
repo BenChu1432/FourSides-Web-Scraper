@@ -51,7 +51,13 @@ async def get_news(media_name: str, db: AsyncSession = Depends(get_db)):
     if not parser_class:
         raise ValueError("Unknown media")
     
-    articles = await news_service.scrape_and_store_news(parser_class, db)
+    articles = await news_service.scrape_translate_and_store_news(parser_class, db)
+    print("articles:",articles)
+    return articles
+
+@router.post("/fetch-all-taiwanese-news", response_model=List[NewsResponse])
+async def get_news(_, db: AsyncSession = Depends(get_db)):
+    articles = news_service.scrape_and_store_all_taiwanese_news(_, db)
     print("articles:",articles)
     return articles
     

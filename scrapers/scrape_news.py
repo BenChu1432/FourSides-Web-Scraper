@@ -6,18 +6,21 @@ from scrapers.news import News
 from app.schemas.news import NewsResponse
 import constant
 import concurrent
-from app.service import error_service
+from app.service import error_service, news_service
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 # Fetch urls and return list of news articles
-async def scrape_news(parser_class: type[News], db):
+async def scrape_unique_news(parser_class: type[News], db):
     # Fetch urls
     scraper = parser_class()
     scrape_urls_result = scraper.get_article_urls_with_errors()
 
     article_urls = scrape_urls_result.urls
+
+    # Remove duplicate urls
+    unique_urls=await news_service.filter_existing_articles(article_urls,db)
 
     # Scrape content from urls
     loop = asyncio.get_running_loop()
@@ -28,7 +31,7 @@ async def scrape_news(parser_class: type[News], db):
         parse_result = await loop.run_in_executor(executor, article.parse_article_with_errors)
         return article, parse_result.errors
 
-    tasks = [scrape_article(url) for url in article_urls]
+    tasks = [scrape_article(url) for url in unique_urls]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     list_of_news = []
