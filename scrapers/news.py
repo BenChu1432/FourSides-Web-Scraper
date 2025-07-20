@@ -1998,9 +1998,7 @@ class ChinaTimes(News):
             print(f"Loading page: {url}")
 
             # Each thread must create its own driver
-            chromedriver_path, options = self.get_chrome_config()
-            service = Service(executable_path=chromedriver_path)
-            driver = webdriver.Chrome(service=service, options=options)
+            driver = self.get_chrome_driver()
 
             try:
                 driver.get(latest_news_url)
@@ -2577,9 +2575,7 @@ class MyPeopleVol(News):
             print(f"Loading page: {url}")
 
             # Each thread must create its own driver
-            chromedriver_path, options = self.get_chrome_config()
-            service = Service(executable_path=chromedriver_path)
-            driver = webdriver.Chrome(service=service, options=options)
+            driver = self.get_chrome_driver()
 
             try:
                 driver.get(url)
@@ -3067,9 +3063,7 @@ class NextAppleNews(News):
             print(f"Loading page: {latest_news_url}")
 
             # Each thread must create its own driver
-            chromedriver_path, options = self.get_chrome_config()
-            service = Service(executable_path=chromedriver_path)
-            driver = webdriver.Chrome(service=service, options=options)
+            driver = self.get_chrome_driver()
 
             try:
                 driver.get(latest_news_url)
@@ -3469,9 +3463,7 @@ class NowNews(News):
             print(f"Loading page: {latest_news_url}")
 
             # Each thread must create its own driver
-            chromedriver_path, options = self.get_chrome_config()
-            service = Service(executable_path=chromedriver_path)
-            driver = webdriver.Chrome(service=service, options=options)
+            driver = self.get_chrome_driver()
 
             try:
                 driver.get(latest_news_url)
@@ -3583,10 +3575,7 @@ class StormMedia(News):
             print(f"Loading page: {latest_news_url}")
 
             # Each thread must create its own driver
-            chromedriver_path, options = self.get_chrome_config()
-            service = Service(executable_path=chromedriver_path)
-            driver = webdriver.Chrome(service=service, options=options)
-
+            driver = self.get_chrome_driver()
             try:
                 driver.get(latest_news_url)
                 time.sleep(2)  # wait for JS
@@ -3878,9 +3867,7 @@ class ETtoday(News):
             print(f"Loading page: {latest_news_url}")
 
             # Each thread must create its own driver
-            chromedriver_path, options = self.get_chrome_config()
-            service = Service(executable_path=chromedriver_path)
-            driver = webdriver.Chrome(service=service, options=options)
+            driver = self.get_chrome_driver()
 
             try:
                 driver.get(latest_news_url)
@@ -4008,9 +3995,7 @@ class NewTalk(News):
             print(f"Loading page: {latest_news_url}")
 
             # Each thread must create its own driver
-            chromedriver_path, options = self.get_chrome_config()
-            service = Service(executable_path=chromedriver_path)
-            driver = webdriver.Chrome(service=service, options=options)
+            driver = self.get_chrome_driver()
 
             try:
                 driver.get(latest_news_url)
@@ -4372,9 +4357,7 @@ class TaiwanNews(News):
             print(f"Loading page: {latest_news_url}")
 
             # Each thread must create its own driver
-            chromedriver_path, options = self.get_chrome_config()
-            service = Service(executable_path=chromedriver_path)
-            driver = webdriver.Chrome(service=service, options=options)
+            driver = self.get_chrome_driver()
 
             try:
                 driver.get(latest_news_url)
@@ -4498,9 +4481,7 @@ class CTWant(News):
             print(f"Loading page: {latest_news_url}")
 
             # Each thread must create its own driver
-            chromedriver_path, options = self.get_chrome_config()
-            service = Service(executable_path=chromedriver_path)
-            driver = webdriver.Chrome(service=service, options=options)
+            driver = self.get_chrome_driver()
 
             try:
                 driver.get(latest_news_url)
@@ -4584,9 +4565,7 @@ class TSSDNews(News):
             print(f"Loading page: {latest_news_url}")
 
             # Each thread must create its own driver
-            chromedriver_path, options = self.get_chrome_config()
-            service = Service(executable_path=chromedriver_path)
-            driver = webdriver.Chrome(service=service, options=options)
+            driver = self.get_chrome_driver()
 
             try:
                 driver.get(latest_news_url)
@@ -4717,9 +4696,7 @@ class CTS(News):
             base_url="https://news.cts.com.tw"
             print(f"Loading page: {latest_news_url}")
 
-            chromedriver_path, options = self.get_chrome_config()
-            service = Service(executable_path=chromedriver_path)
-            driver = webdriver.Chrome(service=service, options=options)
+            driver = self.get_chrome_driver()
 
             try:
                 driver.get(latest_news_url)

@@ -2,9 +2,6 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware  
 from app.routers import news_controller
-from dotenv import load_dotenv
-import os
-from libretranslatepy import LibreTranslateAPI
 
 app = FastAPI(title="S-News API")
 logger = logging.getLogger(__name__)
