@@ -1,3 +1,4 @@
+import os
 import re
 from typing import Dict, Optional
 from urllib.parse import urlparse
@@ -18,11 +19,14 @@ import datetime
 from app.dto.dto import FetchUrlsResult, ParseArticleResult
 from app.enums.enums import ErrorTypeEnum
 from app.errors.NewsParsingError import UnmappedMediaNameError
-from app.service.error_service import log_error
 from util import chineseMediaTranslationUtil
 from util.timeUtil import HKEJDateToTimestamp, IntiumChineseDateToTimestamp, NowTVDateToTimestamp, RTHKChineseDateToTimestamp, SCMPDateToTimestamp, SingTaoDailyChineseDateToTimestamp, TheCourtNewsDateToTimestamp, standardChineseDatetoTimestamp, standardDateToTimestamp
 import concurrent.futures
 import time
+import platform
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+
 
 # Constants
 WAITING_TIME_FOR_JS_TO_FETCH_DATA=2
@@ -32,6 +36,7 @@ class News(ABC):
     media_name: Optional[str]
     title: Optional[str]
     content: Optional[str]
+    content_en: Optional[str]
     published_at: Optional[int]
     authors: List[str]
     images: List[str]
@@ -46,10 +51,62 @@ class News(ABC):
         self.max_pages=1
         self.title = None
         self.content = None
+        self.content_en= None
         self.published_at=None
         self.origin="native"
         self.authors=[]
         self.images=[]
+
+    def get_chrome_config(self):
+        """Return (chromedriver_path, chrome_options) for Selenium based on runtime platform."""
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=1280,800")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument(
+            "user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+        )
+
+        system = platform.system()
+        # print(f"🖥️ Detected platform: {system}")
+
+        # Allow environment overrides
+        chrome_path = os.getenv("CHROME_BINARY")
+        chromedriver_path = os.getenv("CHROMEDRIVER_BINARY")
+
+        if system == "Darwin" and not chrome_path:
+            # Local macOS dev
+            from webdriver_manager.chrome import ChromeDriverManager
+            chromedriver_path = ChromeDriverManager().install()
+            chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        else:
+            # Default to ChromeDriverManager if CHROME_BINARY not set
+            chromedriver_path = ChromeDriverManager().install()
+            chrome_path = "/usr/bin/google-chrome"  # Or wherever Chrome is installed on EC2
+
+        options.binary_location = chrome_path
+
+        # Log config to CloudWatch for verification
+        # print("👀 /opt contents:", os.listdir("/opt"))
+        # print("👀 Checking chromedriver manually...")
+        # print("  Exists:", os.path.exists("/opt/chromedriver"))
+        # print("  Is file:", os.path.isfile("/opt/chromedriver"))
+        # # same for headless-chromium
+        # print("👀 Checking chromium binary...")
+        # print("  Exists:", os.path.exists("/opt/headless-chromium"))
+        # print("  Is file:", os.path.isfile("/opt/headless-chromium"))
+        # print("  Is executable:", os.access("/opt/headless-chromium", os.X_OK))
+        # print("👀 chromedriver exists:", os.path.exists(chromedriver_path))
+        # print("👀 chromedriver is executable:", os.access(chromedriver_path, os.X_OK))
+        # print(f"🧭 Chrome binary path: {chrome_path}")
+        # print(f"🧭 Chromedriver path: {chromedriver_path}")
+        # print(f"✅ options.binary_location set")
+        
+        return chromedriver_path, options
 
     @abstractmethod
     def _get_article_urls(self):
@@ -328,16 +385,9 @@ class ChineseNewYorkTimes (News):
         latest_news_url = "https://m.cn.nytimes.com/zh-hant/"
         print(f"Loading page: {latest_news_url}")
 
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         all_urls = []
 
@@ -370,17 +420,9 @@ class ChineseNewYorkTimes (News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -479,17 +521,9 @@ class DeutscheWelle (News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -696,17 +730,9 @@ class HK01(News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -1206,17 +1232,9 @@ class OrangeNews(News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -1285,17 +1303,9 @@ class TheStandard(News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -1477,17 +1487,9 @@ class TheWitness(News):
         self.parse_article()
 
     def parse_article(self):
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -1686,16 +1688,9 @@ class UnitedDailyNews(News):
         base_url="https://money.udn.com"
         print(f"Loading page: {latest_news_url}")
 
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         all_urls = []
 
@@ -1853,16 +1848,9 @@ class LibertyTimesNet(News):
         latest_news_url = "https://news.ltn.com.tw/list/breakingnews"
         print(f"Loading page: {latest_news_url}")
 
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         all_urls = []
 
@@ -2023,16 +2011,9 @@ class ChinaTimes(News):
             print(f"Loading page: {url}")
 
             # Each thread must create its own driver
-            options = Options()
-            options.add_argument("--headless")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--window-size=1280,800")
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option("useAutomationExtension", False)
-            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-            driver = webdriver.Chrome(options=options)
+            chromedriver_path, options = self.get_chrome_config()
+            service = Service(executable_path=chromedriver_path)
+            driver = webdriver.Chrome(service=service, options=options)
 
             try:
                 driver.get(latest_news_url)
@@ -2075,17 +2056,9 @@ class ChinaTimes(News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -2189,16 +2162,9 @@ class CNA(News):
         latest_news_url = "https://www.cna.com.tw/list/aall.aspx"
         print(f"Loading page: {latest_news_url}")
 
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         all_urls = []
 
@@ -2367,16 +2333,9 @@ class PTSNews(News):
         base_url="https://news.pts.org.tw"
         print(f"Loading page: {latest_news_url}")
 
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         all_urls = []
 
@@ -2491,16 +2450,9 @@ class CTEE(News):
         base_url="https://www.ctee.com.tw"
         print(f"Loading page: {latest_news_url}")
 
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         all_urls = []
 
@@ -2553,17 +2505,9 @@ class CTEE(News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -2656,16 +2600,9 @@ class MyPeopleVol(News):
             print(f"Loading page: {url}")
 
             # Each thread must create its own driver
-            options = Options()
-            options.add_argument("--headless")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--window-size=1280,800")
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option("useAutomationExtension", False)
-            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-            driver = webdriver.Chrome(options=options)
+            chromedriver_path, options = self.get_chrome_config()
+            service = Service(executable_path=chromedriver_path)
+            driver = webdriver.Chrome(service=service, options=options)
 
             try:
                 driver.get(url)
@@ -2822,17 +2759,9 @@ class TaiwanTimes(News):
                 driver.quit()
         latest_news_url = "https://www.taiwantimes.com.tw/app-container/app-content/new/new-category?category=7"
 
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         try:
             driver.get(latest_news_url)
@@ -2883,17 +2812,9 @@ class TaiwanTimes(News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -3047,16 +2968,9 @@ class SETN(News):
         base_url = "https://www.setn.com"
         print(f"Loading page: {latest_news_url}")
 
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         all_urls = []
 
@@ -3181,16 +3095,9 @@ class NextAppleNews(News):
             print(f"Loading page: {latest_news_url}")
 
             # Each thread must create its own driver
-            options = Options()
-            options.add_argument("--headless")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--window-size=1280,800")
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option("useAutomationExtension", False)
-            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-            driver = webdriver.Chrome(options=options)
+            chromedriver_path, options = self.get_chrome_config()
+            service = Service(executable_path=chromedriver_path)
+            driver = webdriver.Chrome(service=service, options=options)
 
             try:
                 driver.get(latest_news_url)
@@ -3286,16 +3193,9 @@ class TTV(News):
         base_url="https://news.ttv.com.tw"
         print(f"Loading page: {latest_news_url}")
 
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         all_urls = []
 
@@ -3406,16 +3306,9 @@ class MirrorMedia(News):
         latest_news_url = "https://www.mirrormedia.mg"
         print(f"Loading page: {latest_news_url}")
 
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         all_urls = []
 
@@ -3465,17 +3358,9 @@ class MirrorMedia(News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -3618,16 +3503,9 @@ class NowNews(News):
             print(f"Loading page: {latest_news_url}")
 
             # Each thread must create its own driver
-            options = Options()
-            options.add_argument("--headless")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--window-size=1280,800")
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option("useAutomationExtension", False)
-            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-            driver = webdriver.Chrome(options=options)
+            chromedriver_path, options = self.get_chrome_config()
+            service = Service(executable_path=chromedriver_path)
+            driver = webdriver.Chrome(service=service, options=options)
 
             try:
                 driver.get(latest_news_url)
@@ -3739,16 +3617,9 @@ class StormMedia(News):
             print(f"Loading page: {latest_news_url}")
 
             # Each thread must create its own driver
-            options = Options()
-            options.add_argument("--headless")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--window-size=1280,800")
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option("useAutomationExtension", False)
-            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-            driver = webdriver.Chrome(options=options)
+            chromedriver_path, options = self.get_chrome_config()
+            service = Service(executable_path=chromedriver_path)
+            driver = webdriver.Chrome(service=service, options=options)
 
             try:
                 driver.get(latest_news_url)
@@ -3838,16 +3709,9 @@ class TVBS(News):
         base_url="https://news.tvbs.com.tw"
         print(f"Loading page: {latest_news_url}")
 
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         all_urls = []
 
@@ -3949,16 +3813,9 @@ class EBCNews(News):
         base_url = "https://news.ebc.net.tw"
         print(f"Loading page: {latest_news_url}")
 
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         all_urls = []
 
@@ -4059,16 +3916,9 @@ class ETtoday(News):
             print(f"Loading page: {latest_news_url}")
 
             # Each thread must create its own driver
-            options = Options()
-            options.add_argument("--headless")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--window-size=1280,800")
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option("useAutomationExtension", False)
-            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-            driver = webdriver.Chrome(options=options)
+            chromedriver_path, options = self.get_chrome_config()
+            service = Service(executable_path=chromedriver_path)
+            driver = webdriver.Chrome(service=service, options=options)
 
             try:
                 driver.get(latest_news_url)
@@ -4111,8 +3961,6 @@ class ETtoday(News):
     
     def parse_article(self, soup):
         # Extract title
-        soup.find("h1").find("div").get_text()
-        print("Extracting shit!")
         title_selectors=[
              {"selector": "h1.title", "text": True}, 
              {"selector":"h1.title_article","text": True}
@@ -4129,11 +3977,12 @@ class ETtoday(News):
         ]
         for selector in content_selectors:
             element = soup.select_one(selector["selector"])
-            promo=element.find("div",class_="et_social_2")
-            if promo:
-                promo.decompose()
-            paragraphs = element.find_all("p")
-            self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
+            if element:
+                promo=element.find("div",class_="et_social_2")
+                if promo:
+                    promo.decompose()
+                paragraphs = element.find_all("p")
+                self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
 
         # Extract authors (no authors)
         authors_selectors=[
@@ -4197,16 +4046,9 @@ class NewTalk(News):
             print(f"Loading page: {latest_news_url}")
 
             # Each thread must create its own driver
-            options = Options()
-            options.add_argument("--headless")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--window-size=1280,800")
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option("useAutomationExtension", False)
-            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-            driver = webdriver.Chrome(options=options)
+            chromedriver_path, options = self.get_chrome_config()
+            service = Service(executable_path=chromedriver_path)
+            driver = webdriver.Chrome(service=service, options=options)
 
             try:
                 driver.get(latest_news_url)
@@ -4425,16 +4267,9 @@ class FTV(News):
         base_url = "https://www.ftvnews.com.tw"
         print(f"Loading page: {latest_news_url}")
 
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         all_urls = []
 
@@ -4485,17 +4320,9 @@ class FTV(News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -4587,16 +4414,9 @@ class TaiwanNews(News):
             print(f"Loading page: {latest_news_url}")
 
             # Each thread must create its own driver
-            options = Options()
-            options.add_argument("--headless")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--window-size=1280,800")
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option("useAutomationExtension", False)
-            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-            driver = webdriver.Chrome(options=options)
+            chromedriver_path, options = self.get_chrome_config()
+            service = Service(executable_path=chromedriver_path)
+            driver = webdriver.Chrome(service=service, options=options)
 
             try:
                 driver.get(latest_news_url)
@@ -4636,17 +4456,9 @@ class TaiwanNews(News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -4730,16 +4542,9 @@ class CTWant(News):
             print(f"Loading page: {latest_news_url}")
 
             # Each thread must create its own driver
-            options = Options()
-            options.add_argument("--headless")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--window-size=1280,800")
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option("useAutomationExtension", False)
-            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-            driver = webdriver.Chrome(options=options)
+            chromedriver_path, options = self.get_chrome_config()
+            service = Service(executable_path=chromedriver_path)
+            driver = webdriver.Chrome(service=service, options=options)
 
             try:
                 driver.get(latest_news_url)
@@ -4823,16 +4628,9 @@ class TSSDNews(News):
             print(f"Loading page: {latest_news_url}")
 
             # Each thread must create its own driver
-            options = Options()
-            # options.add_argument("--headless")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--window-size=1280,800")
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option("useAutomationExtension", False)
-            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-            driver = webdriver.Chrome(options=options)
+            chromedriver_path, options = self.get_chrome_config()
+            service = Service(executable_path=chromedriver_path)
+            driver = webdriver.Chrome(service=service, options=options)
 
             try:
                 driver.get(latest_news_url)
@@ -4872,17 +4670,9 @@ class TSSDNews(News):
     def parse_article(self):
         # 使用非 headless 模式（可視化）
         base_url="https://www.tssdnews.com.tw"
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-
-        driver = webdriver.Chrome(options=options)
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -4973,17 +4763,9 @@ class CTS(News):
             base_url="https://news.cts.com.tw"
             print(f"Loading page: {latest_news_url}")
 
-            # Each thread must create its own driver
-            options = Options()
-            options.add_argument("--headless")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--window-size=1280,800")
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option("useAutomationExtension", False)
-            options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-            driver = webdriver.Chrome(options=options)
+            chromedriver_path, options = self.get_chrome_config()
+            service = Service(executable_path=chromedriver_path)
+            driver = webdriver.Chrome(service=service, options=options)
 
             try:
                 driver.get(latest_news_url)
@@ -5109,21 +4891,12 @@ class YahooNews(News):
         ]
         base_url = "https://tw.news.yahoo.com"
 
-        # Set up Selenium Chrome options
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--window-size=1280,800")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument(
-            "user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
-        )
+        # Get options and driver_path
+        chromedriver_path, options = self.get_chrome_config()
+        service = Service(executable_path=chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=options)
 
         all_urls = []
-        driver = webdriver.Chrome(options=options)
 
         try:
             for url in archive_urls:

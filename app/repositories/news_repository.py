@@ -5,6 +5,21 @@ from sqlalchemy import select, and_
 from typing import List
 from sqlalchemy.dialects.postgresql import insert
 
+async def filter_existing_articles(articles: List[NewsEntity], db) -> List[NewsEntity]:
+    urls = [article.url for article in articles if article.url]
+    if not urls:
+        return articles
+
+    # Fetch existing URLs from DB
+    existing_urls_query = select(NewsEntity.url).where(NewsEntity.url.in_(urls))
+    result = await db.execute(existing_urls_query)
+    existing_urls = set(result.scalars().all())
+
+    # Return only articles not in DB
+    filtered_articles = [article for article in articles if article.url not in existing_urls]
+    print(f"Filtered out {len(articles) - len(filtered_articles)} existing articles")
+    return filtered_articles
+
 
 async def get_filtered_news(filter, db):
     query = select(NewsEntity)
@@ -45,6 +60,7 @@ async def store_all_articles(articles:List[NewsEntity],db):
             "title": article.title,
             "origin": article.origin,
             "content": article.content,
+            "content_en": article.content_en,
             "published_at": article.published_at,
             "authors": article.authors,
             "images": article.images,

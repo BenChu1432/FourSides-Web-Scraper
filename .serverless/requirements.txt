@@ -11,3 +11,4 @@ python-dotenv==1.0.1
 python-dotenv==1.0.1          # You’re using dotenv
 selenium==4.34.2
 uvicorn==0.29.0               # Add this for FastAPI to run
+webdriver-manager==4.0.2

@@ -13,9 +13,18 @@ from constant import NEWS_CLASSES
 import constant
 from app.schemas.news import NewsFilter
 
-logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+@router.get("/debug-files")
+def debug_chrome_files():
+    import os
+    return {
+        "chromedriver_exists": os.path.exists("/opt/chromedriver"),
+        "chromedriver_executable": os.access("/opt/chromedriver", os.X_OK),
+        "chrome_exists": os.path.exists("/opt/headless-chromium"),
+        "chrome_executable": os.access("/opt/headless-chromium", os.X_OK),
+    }
 
 @router.post("/parse-news", response_model=NewsResponse)
 async def parse_news_article(news: NewsRequest, db: AsyncSession = Depends(get_db)):

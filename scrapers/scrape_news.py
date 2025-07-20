@@ -13,50 +13,38 @@ from concurrent.futures import ThreadPoolExecutor
 
 # Fetch urls and return list of news articles
 async def scrape_news(parser_class: type[News], db):
+    # Fetch urls
     scraper = parser_class()
-
-    # These are blocking, but let's assume this one is fast enough to run in the main thread
-    scrape_urls_result: FetchUrlsResult = scraper.get_article_urls_with_errors()
-
-    if scrape_urls_result.errors:
-        await error_service.log_error(db, scrape_urls_result.errors)
+    scrape_urls_result = scraper.get_article_urls_with_errors()
 
     article_urls = scrape_urls_result.urls
 
-    # Scrape data from websites using urls
+    # Scrape content from urls
     loop = asyncio.get_running_loop()
     executor = ThreadPoolExecutor(max_workers=scraper.max_workers)
 
     async def scrape_article(url):
-        # Run parser_class(url) in a thread
         article = await loop.run_in_executor(executor, parser_class, url)
+        parse_result = await loop.run_in_executor(executor, article.parse_article_with_errors)
+        return article, parse_result.errors
 
-        # Run article.parse_article_with_errors in a thread
-        parseArticleResult = await loop.run_in_executor(executor, article.parse_article_with_errors)
-
-        if parseArticleResult.errors:
-            await error_service.log_error(db, parseArticleResult.errors)
-
-        return NewsEntity(
-            url=article.url,
-            media_name=article.media_name,
-            title=article.title,
-            content=article.content,
-            published_at=article.published_at,
-            authors=article.authors,
-            images=article.images,
-            origin=article.origin
-        )
-
-    # Launch all fetch_article calls concurrently
     tasks = [scrape_article(url) for url in article_urls]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     list_of_news = []
+    all_errors = []
+
     for result in results:
         if isinstance(result, Exception):
             print(f"❌ Error fetching article: {result}")
         else:
-            list_of_news.append(result)
+            article, errors = result
+            list_of_news.append(article)
+            if errors:
+                all_errors.extend(errors)
+
+    if all_errors:
+        await error_service.log_error(db, all_errors)
 
     return list_of_news
+

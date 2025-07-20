@@ -15,6 +15,7 @@ class NewsEntity(Base):
     title = Column(String, nullable=True)
     origin = Column(SAEnum(enums.OriginEnum), nullable=True)  
     content = Column(Text, nullable=True)
+    content_en = Column(Text, nullable=True)
     published_at = Column(Integer, nullable=True)
     authors = Column(ARRAY(String), nullable=True)     # PostgreSQL supports ARRAY
     images = Column(ARRAY(String), nullable=True)

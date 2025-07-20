@@ -117,7 +117,7 @@
               "Properties": {
                 "Code": {
                   "S3Bucket": "serverless-framework-deployments-ap-southeast-1-c98ba93a-9727",
-                  "S3Key": "serverless/foursides-poc/poc/1752484918805-2025-07-14T09:21:58.805Z/foursides-poc.zip"
+                  "S3Key": "serverless/foursides-poc/poc/1752596136894-2025-07-15T16:15:36.894Z/foursides-poc.zip"
                 },
                 "Handler": "server.handler",
                 "Runtime": "python3.11",
@@ -142,14 +142,14 @@
                 "ApiLogGroup"
               ]
             },
-            "ApiLambdaVersionDCeKgIUWbllEiZGqf9sawApVvmFUr6D9hZVnza3Kw5k": {
+            "ApiLambdaVersionEbCGrI94BKQDDGZxtMCehE79asTTHAn8KqeAkTLU4": {
               "Type": "AWS::Lambda::Version",
               "DeletionPolicy": "Retain",
               "Properties": {
                 "FunctionName": {
                   "Ref": "ApiLambdaFunction"
                 },
-                "CodeSha256": "CYB7Kcv/DGKJ8BjukAkb9/TzEjkxqRpxILDHvwv07Ow="
+                "CodeSha256": "3KTo7vfldl/9ZoizkHw1B/DGH73aZzbY0QgMQ0ZvkDc="
               }
             },
             "ApiGatewayRestApi": {
@@ -367,7 +367,7 @@
                 "ApiLambdaPermissionApiGateway"
               ]
             },
-            "ApiGatewayDeployment1752484894256": {
+            "ApiGatewayDeployment1752596109560": {
               "Type": "AWS::ApiGateway::Deployment",
               "Properties": {
                 "RestApiId": {
@@ -430,7 +430,7 @@
             "ApiLambdaFunctionQualifiedArn": {
               "Description": "Current Lambda function version",
               "Value": {
-                "Ref": "ApiLambdaVersionDCeKgIUWbllEiZGqf9sawApVvmFUr6D9hZVnza3Kw5k"
+                "Ref": "ApiLambdaVersionEbCGrI94BKQDDGZxtMCehE79asTTHAn8KqeAkTLU4"
               },
               "Export": {
                 "Name": "sls-foursides-poc-poc-ApiLambdaFunctionQualifiedArn"
@@ -525,7 +525,7 @@
           "timeout": 29,
           "runtime": "python3.11",
           "vpc": {},
-          "versionLogicalId": "ApiLambdaVersionDCeKgIUWbllEiZGqf9sawApVvmFUr6D9hZVnza3Kw5k"
+          "versionLogicalId": "ApiLambdaVersionEbCGrI94BKQDDGZxtMCehE79asTTHAn8KqeAkTLU4"
         }
       },
       "custom": {
@@ -533,7 +533,7 @@
           "dockerizePip": true,
           "platform": "linux/amd64",
           "slim": true,
-          "strip": false
+          "strip": true
         }
       },
       "package": {
@@ -550,7 +550,7 @@
         "artifactsS3KeyDirname": "serverless/foursides-poc/poc/code-artifacts",
         "deploymentBucket": "serverless-framework-deployments-ap-southeast-1-c98ba93a-9727",
         "artifact": "/Users/chuben/Desktop/Coding Projects/FourSides-Web-Scraper/.serverless/foursides-poc.zip",
-        "artifactDirectoryName": "serverless/foursides-poc/poc/1752484918805-2025-07-14T09:21:58.805Z"
+        "artifactDirectoryName": "serverless/foursides-poc/poc/1752596136894-2025-07-15T16:15:36.894Z"
       }
     },
     "provider": {
@@ -662,7 +662,7 @@
             "Properties": {
               "Code": {
                 "S3Bucket": "serverless-framework-deployments-ap-southeast-1-c98ba93a-9727",
-                "S3Key": "serverless/foursides-poc/poc/1752484918805-2025-07-14T09:21:58.805Z/foursides-poc.zip"
+                "S3Key": "serverless/foursides-poc/poc/1752596136894-2025-07-15T16:15:36.894Z/foursides-poc.zip"
               },
               "Handler": "server.handler",
               "Runtime": "python3.11",
@@ -687,14 +687,14 @@
               "ApiLogGroup"
             ]
           },
-          "ApiLambdaVersionDCeKgIUWbllEiZGqf9sawApVvmFUr6D9hZVnza3Kw5k": {
+          "ApiLambdaVersionEbCGrI94BKQDDGZxtMCehE79asTTHAn8KqeAkTLU4": {
             "Type": "AWS::Lambda::Version",
             "DeletionPolicy": "Retain",
             "Properties": {
               "FunctionName": {
                 "Ref": "ApiLambdaFunction"
               },
-              "CodeSha256": "CYB7Kcv/DGKJ8BjukAkb9/TzEjkxqRpxILDHvwv07Ow="
+              "CodeSha256": "3KTo7vfldl/9ZoizkHw1B/DGH73aZzbY0QgMQ0ZvkDc="
             }
           },
           "ApiGatewayRestApi": {
@@ -912,7 +912,7 @@
               "ApiLambdaPermissionApiGateway"
             ]
           },
-          "ApiGatewayDeployment1752484894256": {
+          "ApiGatewayDeployment1752596109560": {
             "Type": "AWS::ApiGateway::Deployment",
             "Properties": {
               "RestApiId": {
@@ -975,7 +975,7 @@
           "ApiLambdaFunctionQualifiedArn": {
             "Description": "Current Lambda function version",
             "Value": {
-              "Ref": "ApiLambdaVersionDCeKgIUWbllEiZGqf9sawApVvmFUr6D9hZVnza3Kw5k"
+              "Ref": "ApiLambdaVersionEbCGrI94BKQDDGZxtMCehE79asTTHAn8KqeAkTLU4"
             },
             "Export": {
               "Name": "sls-foursides-poc-poc-ApiLambdaFunctionQualifiedArn"
@@ -1020,7 +1020,7 @@
       "serviceProvider": null,
       "instanceParameters": null
     },
-    "serviceRawFile": "# \"org\" ensures this Service is used with the correct Serverless Framework Access Key.\n# org: foursides\n# \"app\" enables Serverless Framework Dashboard features and sharing them with other Services.\n# app: foursides\n\n# Project name on the infrastructure created\nservice: foursides-poc\n\nplugins:\n    - serverless-python-requirements\n\nprovider:\n    name: aws\n    runtime: python3.11\n    stage: poc\n    region: ap-southeast-1\n    timeout: 29\n    endpointType: REGIONAL\n    apiGateway:\n        shouldStartNameWithService: true\n    environment:\n        TOGETHER_AI_API_KEY: abc\n        FILE_STORAGE: /tmp/files\n        PORT: 3000\n\nfunctions:\n    api:\n        handler: server.handler\n        events:\n            - http:\n                  path: /\n                  method: ANY\n                  cors: true\n            - http:\n                  path: /{proxy+}\n                  method: ANY\n                  cors: true\n\ncustom:\n    pythonRequirements:\n        dockerizePip: true\n        platform: linux/amd64\n        slim: true\n        strip: false\n\npackage:\n    exclude:\n        - node_modules/**\n        - .venv/**\n        - __pycache__/**\n        - .serverless/**\n        - .pytest_cache/**\n        - .DS_Store\n        - tests/**\n        - requirements.zip\n\n          # slim: true\n          # dockerizePip: true # Ensure Linux-compatible builds\n          # useStaticCache: false # Disable caching\n          # # Add these two critical settings:\n          # strip: false # Prevent over-optimization\n          # injectFiles: true # Ensure unzip script works\n",
+    "serviceRawFile": "# \"org\" ensures this Service is used with the correct Serverless Framework Access Key.\n# org: foursides\n# \"app\" enables Serverless Framework Dashboard features and sharing them with other Services.\n# app: foursides\n\n# Project name on the infrastructure created\nservice: foursides-poc\n\nplugins:\n    - serverless-python-requirements\n\nprovider:\n    name: aws\n    runtime: python3.11\n    stage: poc\n    region: ap-southeast-1\n    timeout: 29\n    endpointType: REGIONAL\n    apiGateway:\n        shouldStartNameWithService: true\n    environment:\n        TOGETHER_AI_API_KEY: abc\n        FILE_STORAGE: /tmp/files\n        PORT: 3000\n\nfunctions:\n    api:\n        handler: server.handler\n        events:\n            - http:\n                  path: /\n                  method: ANY\n                  cors: true\n            - http:\n                  path: /{proxy+}\n                  method: ANY\n                  cors: true\n\ncustom:\n    pythonRequirements:\n        dockerizePip: true\n        platform: linux/amd64\n        slim: true\n        strip: True\n\npackage:\n    exclude:\n        - node_modules/**\n        - .venv/**\n        - __pycache__/**\n        - .serverless/**\n        - .pytest_cache/**\n        - .DS_Store\n        - tests/**\n        - requirements.zip\n\n          # slim: true\n          # dockerizePip: true # Ensure Linux-compatible builds\n          # useStaticCache: false # Disable caching\n          # # Add these two critical settings:\n          # strip: false # Prevent over-optimization\n          # injectFiles: true # Ensure unzip script works\n",
     "command": [
       "deploy"
     ],
@@ -1033,12 +1033,12 @@
     "serviceProviderAwsCfStackName": "foursides-poc-poc",
     "serviceProviderAwsCfStackId": "arn:aws:cloudformation:ap-southeast-1:077918830355:stack/foursides-poc-poc/7aebff30-56a3-11f0-bfa0-02ebbbb3ed31",
     "serviceProviderAwsCfStackCreated": "2025-07-01T17:47:39.158Z",
-    "serviceProviderAwsCfStackUpdated": "2025-07-12T03:20:25.524Z",
+    "serviceProviderAwsCfStackUpdated": "2025-07-15T15:50:32.989Z",
     "serviceProviderAwsCfStackStatus": "UPDATE_COMPLETE",
     "serviceProviderAwsCfStackOutputs": [
       {
         "OutputKey": "ApiLambdaFunctionQualifiedArn",
-        "OutputValue": "arn:aws:lambda:ap-southeast-1:077918830355:function:foursides-poc-poc-api:46",
+        "OutputValue": "arn:aws:lambda:ap-southeast-1:077918830355:function:foursides-poc-poc-api:61",
         "Description": "Current Lambda function version",
         "ExportName": "sls-foursides-poc-poc-ApiLambdaFunctionQualifiedArn"
       },
@@ -1147,7 +1147,7 @@
           "Properties": {
             "Code": {
               "S3Bucket": "serverless-framework-deployments-ap-southeast-1-c98ba93a-9727",
-              "S3Key": "serverless/foursides-poc/poc/1752484918805-2025-07-14T09:21:58.805Z/foursides-poc.zip"
+              "S3Key": "serverless/foursides-poc/poc/1752596136894-2025-07-15T16:15:36.894Z/foursides-poc.zip"
             },
             "Handler": "server.handler",
             "Runtime": "python3.11",
@@ -1172,14 +1172,14 @@
             "ApiLogGroup"
           ]
         },
-        "ApiLambdaVersionDCeKgIUWbllEiZGqf9sawApVvmFUr6D9hZVnza3Kw5k": {
+        "ApiLambdaVersionEbCGrI94BKQDDGZxtMCehE79asTTHAn8KqeAkTLU4": {
           "Type": "AWS::Lambda::Version",
           "DeletionPolicy": "Retain",
           "Properties": {
             "FunctionName": {
               "Ref": "ApiLambdaFunction"
             },
-            "CodeSha256": "CYB7Kcv/DGKJ8BjukAkb9/TzEjkxqRpxILDHvwv07Ow="
+            "CodeSha256": "3KTo7vfldl/9ZoizkHw1B/DGH73aZzbY0QgMQ0ZvkDc="
           }
         },
         "ApiGatewayRestApi": {
@@ -1397,7 +1397,7 @@
             "ApiLambdaPermissionApiGateway"
           ]
         },
-        "ApiGatewayDeployment1752484894256": {
+        "ApiGatewayDeployment1752596109560": {
           "Type": "AWS::ApiGateway::Deployment",
           "Properties": {
             "RestApiId": {
@@ -1460,7 +1460,7 @@
         "ApiLambdaFunctionQualifiedArn": {
           "Description": "Current Lambda function version",
           "Value": {
-            "Ref": "ApiLambdaVersionDCeKgIUWbllEiZGqf9sawApVvmFUr6D9hZVnza3Kw5k"
+            "Ref": "ApiLambdaVersionEbCGrI94BKQDDGZxtMCehE79asTTHAn8KqeAkTLU4"
           },
           "Export": {
             "Name": "sls-foursides-poc-poc-ApiLambdaFunctionQualifiedArn"

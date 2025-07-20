@@ -30,7 +30,6 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)),
 config = context.config
 fileConfig(config.config_file_name)
 DATABASE_URL=os.getenv("SYNC_DATABASE_URL")
-print("Hi DATABASE_URL:",DATABASE_URL)
 
 config.set_main_option('sqlalchemy.url', DATABASE_URL)
 
