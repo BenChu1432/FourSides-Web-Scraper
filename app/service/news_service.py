@@ -18,7 +18,7 @@ async def scrape_and_store_news(parser_instance: Type[News], db:AsyncSession):
     print("articles:",articles)
     print("len(articles)",len(articles))
     # Remove duplicate urls
-    filtered_articles=news_repository.filter_existing_articles(articles)
+    filtered_articles=await news_repository.filter_existing_articles(articles,db)
     print("len(articles)",len(articles))
     # Translate
     await asyncio.gather(*[translate_article(article) for article in filtered_articles])
