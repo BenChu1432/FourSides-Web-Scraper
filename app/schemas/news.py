@@ -26,4 +26,4 @@ class NewsResponse(BaseModel):
     images: List[str] = []
     # correctly convert a SQLAlchemy ORM object into a JSON response.
     class Config:
-        orm_mode = True
+        from_attributes = True

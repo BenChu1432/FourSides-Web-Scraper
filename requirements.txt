@@ -12,5 +12,5 @@ uvicorn==0.29.0               # Add this for FastAPI to run
 asyncpg==0.29.0               # Needed if you use PostgreSQL
 python-dotenv==1.0.1          # You’re using dotenv
 webdriver-manager==4.0.2
-together==1.5.21
+together==1.4.6
 # numpy==1.24.4

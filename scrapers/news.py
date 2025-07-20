@@ -57,7 +57,7 @@ class News(ABC):
         self.authors=[]
         self.images=[]
 
-    def get_chrome_config(self):
+    def get_chrome_options(self):
         """Return (chromedriver_path, chrome_options) for Selenium based on runtime platform."""
         options = Options()
         options.add_argument("--headless")
@@ -70,25 +70,6 @@ class News(ABC):
         options.add_argument(
             "user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
         )
-
-        system = platform.system()
-        # print(f"🖥️ Detected platform: {system}")
-
-        # Allow environment overrides
-        chrome_path = os.getenv("CHROME_BINARY")
-        chromedriver_path = os.getenv("CHROMEDRIVER_BINARY")
-
-        if system == "Darwin" and not chrome_path:
-            # Local macOS dev
-            from webdriver_manager.chrome import ChromeDriverManager
-            chromedriver_path = ChromeDriverManager().install()
-            chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-        else:
-            # Default to ChromeDriverManager if CHROME_BINARY not set
-            chromedriver_path = ChromeDriverManager().install()
-            chrome_path = "/usr/bin/google-chrome"  # Or wherever Chrome is installed on EC2
-
-        options.binary_location = chrome_path
 
         # Log config to CloudWatch for verification
         # print("👀 /opt contents:", os.listdir("/opt"))
@@ -106,7 +87,31 @@ class News(ABC):
         # print(f"🧭 Chromedriver path: {chromedriver_path}")
         # print(f"✅ options.binary_location set")
         
-        return chromedriver_path, options
+        return options
+
+    def get_chrome_driver(self):
+        """Return (chromedriver_path, chrome_options) for Selenium based on runtime platform."""
+        options=self.get_chrome_options()
+
+        driver = webdriver.Chrome(options=options)
+
+        # Log config to CloudWatch for verification
+        # print("👀 /opt contents:", os.listdir("/opt"))
+        # print("👀 Checking chromedriver manually...")
+        # print("  Exists:", os.path.exists("/opt/chromedriver"))
+        # print("  Is file:", os.path.isfile("/opt/chromedriver"))
+        # # same for headless-chromium
+        # print("👀 Checking chromium binary...")
+        # print("  Exists:", os.path.exists("/opt/headless-chromium"))
+        # print("  Is file:", os.path.isfile("/opt/headless-chromium"))
+        # print("  Is executable:", os.access("/opt/headless-chromium", os.X_OK))
+        # print("👀 chromedriver exists:", os.path.exists(chromedriver_path))
+        # print("👀 chromedriver is executable:", os.access(chromedriver_path, os.X_OK))
+        # print(f"🧭 Chrome binary path: {chrome_path}")
+        # print(f"🧭 Chromedriver path: {chromedriver_path}")
+        # print(f"✅ options.binary_location set")
+        
+        return driver
 
     @abstractmethod
     def _get_article_urls(self):
@@ -385,9 +390,7 @@ class ChineseNewYorkTimes (News):
         latest_news_url = "https://m.cn.nytimes.com/zh-hant/"
         print(f"Loading page: {latest_news_url}")
 
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver = self.get_chrome_driver()
 
         all_urls = []
 
@@ -420,9 +423,7 @@ class ChineseNewYorkTimes (News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver = self.get_chrome_driver()
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -521,9 +522,7 @@ class DeutscheWelle (News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver = self.get_chrome_driver()
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -730,9 +729,7 @@ class HK01(News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver = self.get_chrome_driver()
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -1232,9 +1229,7 @@ class OrangeNews(News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver = self.get_chrome_driver()
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -1303,9 +1298,7 @@ class TheStandard(News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver = self.get_chrome_driver()
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -1487,9 +1480,7 @@ class TheWitness(News):
         self.parse_article()
 
     def parse_article(self):
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver = self.get_chrome_driver()
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -1688,9 +1679,7 @@ class UnitedDailyNews(News):
         base_url="https://money.udn.com"
         print(f"Loading page: {latest_news_url}")
 
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver = self.get_chrome_driver()
 
         all_urls = []
 
@@ -1848,9 +1837,7 @@ class LibertyTimesNet(News):
         latest_news_url = "https://news.ltn.com.tw/list/breakingnews"
         print(f"Loading page: {latest_news_url}")
 
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver = self.get_chrome_driver()
 
         all_urls = []
 
@@ -2056,9 +2043,7 @@ class ChinaTimes(News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver = self.get_chrome_driver()
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -2162,9 +2147,7 @@ class CNA(News):
         latest_news_url = "https://www.cna.com.tw/list/aall.aspx"
         print(f"Loading page: {latest_news_url}")
 
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver = self.get_chrome_driver()
 
         all_urls = []
 
@@ -2333,9 +2316,7 @@ class PTSNews(News):
         base_url="https://news.pts.org.tw"
         print(f"Loading page: {latest_news_url}")
 
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver = self.get_chrome_driver()
 
         all_urls = []
 
@@ -2450,9 +2431,7 @@ class CTEE(News):
         base_url="https://www.ctee.com.tw"
         print(f"Loading page: {latest_news_url}")
 
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver = self.get_chrome_driver()
 
         all_urls = []
 
@@ -2505,9 +2484,7 @@ class CTEE(News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver = self.get_chrome_driver()
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -2759,9 +2736,8 @@ class TaiwanTimes(News):
                 driver.quit()
         latest_news_url = "https://www.taiwantimes.com.tw/app-container/app-content/new/new-category?category=7"
 
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver=self.get_chrome_driver()
+        options=self.get_chrome_options()
 
         try:
             driver.get(latest_news_url)
@@ -2812,9 +2788,7 @@ class TaiwanTimes(News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver=self.get_chrome_driver()
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -2968,9 +2942,7 @@ class SETN(News):
         base_url = "https://www.setn.com"
         print(f"Loading page: {latest_news_url}")
 
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver=self.get_chrome_driver()
 
         all_urls = []
 
@@ -3193,9 +3165,7 @@ class TTV(News):
         base_url="https://news.ttv.com.tw"
         print(f"Loading page: {latest_news_url}")
 
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver=self.get_chrome_driver()
 
         all_urls = []
 
@@ -3306,9 +3276,7 @@ class MirrorMedia(News):
         latest_news_url = "https://www.mirrormedia.mg"
         print(f"Loading page: {latest_news_url}")
 
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver=self.get_chrome_driver()
 
         all_urls = []
 
@@ -3358,9 +3326,7 @@ class MirrorMedia(News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver=self.get_chrome_driver()
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -3709,9 +3675,7 @@ class TVBS(News):
         base_url="https://news.tvbs.com.tw"
         print(f"Loading page: {latest_news_url}")
 
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver=self.get_chrome_driver()
 
         all_urls = []
 
@@ -3813,9 +3777,7 @@ class EBCNews(News):
         base_url = "https://news.ebc.net.tw"
         print(f"Loading page: {latest_news_url}")
 
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver=self.get_chrome_driver()
 
         all_urls = []
 
@@ -4267,9 +4229,7 @@ class FTV(News):
         base_url = "https://www.ftvnews.com.tw"
         print(f"Loading page: {latest_news_url}")
 
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver=self.get_chrome_driver()
 
         all_urls = []
 
@@ -4320,9 +4280,7 @@ class FTV(News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver=self.get_chrome_driver()
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -4456,9 +4414,7 @@ class TaiwanNews(News):
 
     def parse_article(self):
         # 使用非 headless 模式（可視化）
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver=self.get_chrome_driver()
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -4670,9 +4626,7 @@ class TSSDNews(News):
     def parse_article(self):
         # 使用非 headless 模式（可視化）
         base_url="https://www.tssdnews.com.tw"
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver=self.get_chrome_driver()
 
         # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
@@ -4892,9 +4846,7 @@ class YahooNews(News):
         base_url = "https://tw.news.yahoo.com"
 
         # Get options and driver_path
-        chromedriver_path, options = self.get_chrome_config()
-        service = Service(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
+        driver=self.get_chrome_driver()
 
         all_urls = []
 
@@ -4919,11 +4871,13 @@ class YahooNews(News):
 
         # Extract images
         self.images = []
-        image_div = soup.find("figure").find_all("img")
-        for img in image_div:
-            if img and img.has_attr("src"):
-                self.images.append(img["src"])
-        print("self.images:", self.images)
+        figure = soup.find("figure")
+        if figure:
+            image_div=figure.find_all("img")
+            for img in image_div:
+                if img and img.has_attr("src"):
+                    self.images.append(img["src"])
+            print("self.images:", self.images)
 
         # Extract published date
         date_div = soup.find("div", class_="caas-attr-time-style")
