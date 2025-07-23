@@ -1,9 +1,11 @@
-from sqlalchemy import Column, Integer, String, Text, ARRAY
+from sqlalchemy import Column, Integer, String, Text, ARRAY,ForeignKey
 from app.db.database import Base
 from typing import Optional, List
 from pydantic import BaseModel
 from sqlalchemy import Enum as SAEnum
 from app.enums import enums
+from sqlalchemy.orm import relationship
+from app.modals.clusterEntity import ClusterEntity
 
 
 class NewsEntity(Base):
@@ -19,3 +21,5 @@ class NewsEntity(Base):
     published_at = Column(Integer, nullable=True)
     authors = Column(ARRAY(String), nullable=True)     # PostgreSQL supports ARRAY
     images = Column(ARRAY(String), nullable=True)
+    cluster_id = Column(Integer, ForeignKey("cluster.id"), nullable=True) # New foreign key column
+    cluster = relationship("ClusterEntity", backref="news") # ORM relationship (optional but useful)

@@ -1,9 +1,9 @@
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware  
-from app.routers import news_controller
+from app.routers import news_router
 
-app = FastAPI(title="S-News API")
+app = FastAPI(title="FourSide API")
 logger = logging.getLogger(__name__)
 
 # ✅ Allow requests from frontend
@@ -19,4 +19,4 @@ app.add_middleware(
 def root():
     return {"message": "Welcome to FourSides Web Scraper"}
 
-app.include_router(news_controller.router, prefix="/web-scraping", tags=["web-scraping"])
+app.include_router(news_router.router, prefix="/web-scraping", tags=["web-scraping"])

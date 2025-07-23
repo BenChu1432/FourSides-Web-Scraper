@@ -12,7 +12,6 @@ CHINESE_TO_ENGLISH_MEDIA = {
     "聯合新聞網": "UnitedDailyNews",
     "中國時報": "ChinaTimes",
     "中央社": "CNA",
-    "經濟日報": "TaiwanEconomicTimes",
     "公視": "PTSNews",
     "工商時報": "CTEE",
     "民眾日報": "MyPeopleVol",

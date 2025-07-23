@@ -105,8 +105,8 @@ class News(ABC):
                 "media_name": self.media_name,
                 "reason": str(e)
             })
-
-        return FetchUrlsResult(urls, errors)
+        result=FetchUrlsResult(urls, errors)
+        return result
     
     # soup may exist or not
     @abstractmethod
@@ -127,6 +127,7 @@ class News(ABC):
                         'DNT': '1',
                         'Upgrade-Insecure-Requests': '1',
                     }
+            print("self.url:",self.url)
             response = requests.get(self.url, headers=headers)
             response.encoding = 'utf-8'
             response.raise_for_status()
@@ -444,10 +445,8 @@ class ChineseNewYorkTimes (News):
                 if image:
                     src=image['src']
                     self.images.append(src)
-        except Exception as e:
-            print("❌ 錯誤：", e)
-
-        driver.quit()
+        finally:
+                driver.quit()
 
 class DeutscheWelle (News):
     def __init__(self, url=None):
@@ -561,10 +560,8 @@ class DeutscheWelle (News):
                     source=source_and_width_list[0]
                     self.images.append(source)
 
-        except Exception as e:
-            print("❌ 錯誤：", e)
-
-        driver.quit()
+        finally:
+                driver.quit()
 
 class HKFreePress(News):
     # Extract title
@@ -767,10 +764,8 @@ class HK01(News):
             else:
                 self.content = "No content found"
             print("self.content:",self.content)
-        except Exception as e:
-            print("❌ 錯誤：", e)
-
-        driver.quit()
+        finally:
+                driver.quit()
 
 class InitiumMedia(News):
     def parse_article(self, soup):
@@ -1253,10 +1248,8 @@ class OrangeNews(News):
             print("self.images:", self.images)
 
 
-        except Exception as e:
-            print("❌ 錯誤：", e)
-
-        driver.quit()
+        finally:
+                driver.quit()
 
 class TheStandard(News):
     def _fetch_and_parse(self):
@@ -1333,10 +1326,8 @@ class TheStandard(News):
                 print("📄 Content Preview:\n",  self.content, "...")
             else:
                 print("⚠️ 找不到文章內容")
-        except Exception as e:
-            print("❌ 錯誤：", e)
-
-        driver.quit()
+        finally:
+                driver.quit()
 
 class HKEJ(News):
     def parse_article(self, soup):
@@ -1574,10 +1565,8 @@ class InMediaHK(News):
                 print("📄 Content Preview:\n", text, "...")
             else:
                 print("⚠️ 找不到文章內容")
-        except Exception as e:
-            print("❌ 錯誤：", e)
-
-        driver.quit()
+        finally:
+                driver.quit()
 
 # China News Media
 class PeopleDaily(News):
@@ -1857,19 +1846,29 @@ class LibertyTimesNet(News):
         content_selectors=[
             {"selector": "div.whitecon.article[data-page='1']"},
             {"selector":"div[data-desc='內文'] div.text"},
+            {"selector": "article.article div.text"}, 
             {"selector": "div.text"},  # Preferred - time tag with datetime attribute
         ]
         for selector in content_selectors:
-            element=soup.select_one(selector["selector"])
+            if selector["selector"] == "div.text":
+                elements = soup.find_all("div", class_="text")
+                for element in elements:
+                    if element.get("class") == ["text"]:  # exact match
+                        break
+                else:
+                    element = None
+            else:
+                element = soup.select_one(selector["selector"])
+
             if element:
-                appPromo=element.find("p",class_="appE1121")
-                captions=element.find_all("span",class_="ph_d")
+                appPromo = element.find("p", class_="appE1121")
+                captions = element.find_all("span", class_="ph_d")
                 if appPromo:
                     appPromo.decompose()
                 if captions:
                     for caption in captions:
                         caption.decompose()
-                content_div=element.find_all(["p","h"])   
+                content_div = element.find_all(["p", "h"])
                 self.content = "\n".join(p.get_text(strip=True) for p in content_div)
                 break
 
@@ -1877,6 +1876,7 @@ class LibertyTimesNet(News):
         date_selector=[
             {"selector": "div.whitecon.article[data-page='1'] span.time",},  # Preferred - time tag with datetime attribute
             {"selector": "div[data-desc='內文'] span.time"},
+            {"selector": "article.article time.time"}, 
             {"selector": "span.time"}
         ]
         for selector in date_selector:
@@ -2096,10 +2096,8 @@ class ChinaTimes(News):
                 image=photoContainer.find("img")["src"]
                 self.images.append(image)
             print("finished")
-        except Exception as e:
-            print("❌ 錯誤：", e)
-
-        driver.quit()
+        finally:
+                driver.quit()
 
 class CNA(News):
     def __init__(self, url=None):
@@ -2179,15 +2177,6 @@ class CNA(News):
                 break
         print("self.published_at:",self.published_at)
 
-        # Extract images
-        date_selector=[
-            {"selector": "figure.center img","attr": "src"},  # Preferred - time tag with datetime attribute
-        ]
-        for selector in date_selector:
-            element=soup.select_one(selector["selector"])
-            if element:
-                self.images.append(element["src"])
-                break
 
         # Extract authors
         date_selector=[
@@ -2212,61 +2201,22 @@ class CNA(News):
                         self.authors.append(editor_match.group(1))
                 break
 
-class TaiwanEconomicTimes(News):
-    def __init__(self, url=None):
-        super().__init__(url)
-        self.media_name="TaiwanEconomicTimes"
-
-    def parse_article(self, soup):
-        # Extract title
-        self.title = soup.find("h1").get_text()
-
-        # Extract content
-        paragraphs = soup.find("section",class_="article-body__editor").find_all("p")
-        self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
-
-        # Extract published date
-        date_selector=[
-            {"selector": "time.article-body__time",},  # Preferred - time tag with datetime attribute
-        ]
-        for selector in date_selector:
-            element=soup.select_one(selector["selector"])
-            if element:
-                date=element.get_text()
-                self.published_at=standardDateToTimestamp(date)
-                break
-        print("self.published_at:",self.published_at)
-
-        # Extract authors
-        date_selector=[
-            {"selector": "div.article-body__info span"},
-        ]
-        for selector in date_selector:
-            element=soup.select_one(selector["selector"])
-            print("element:",element)
-            if element:
-                text=element.get_text()
-                print("text:",text)
-                # 1. First, try to extract the journalist name (primary author)
-                journalist_match = re.search(r'中央社 記者([\u4e00-\u9fff]{2,3})', text)
-                if journalist_match:
-                    self.authors.append(journalist_match.group(1))
-                
-                # 1. First, try to extract the journalist name (primary author)
-                journalist_match = re.search(r'經濟日報 編譯([\u4e00-\u9fff]{2,3})', text)
-                if journalist_match:
-                    self.authors.append(journalist_match.group(1))
-
         # Extract images
         date_selector=[
-            {"selector": "figure.article-image img"},  # Preferred - time tag with datetime attribute
+            {"selector": "figure.center img"},  # Preferred - time tag with datetime attribute
         ]
         for selector in date_selector:
-            element=soup.select_one(selector["selector"])
-            if element:
-                self.images.append(element["src"])
-                break
-        print("self.published_at:",self.published_at)
+            elements = soup.select(selector["selector"])
+            print("elements:", elements)
+            for element in elements:
+                if element:
+                    src = element.get("src")
+                    data_src = element.get("data-src")
+                    if src:
+                        self.images.append(src)
+                    if data_src:
+                        self.images.append(data_src)
+        print("self.images:",self.images)
 
 class PTSNews(News):
     def __init__(self, url=None):
@@ -2523,10 +2473,8 @@ class CTEE(News):
                     self.images.append(element["src"])
                     break
 
-        except Exception as e:
-            print("❌ 錯誤：", e)
-
-        driver.quit()
+        finally:
+                driver.quit()
 
 class MyPeopleVol(News):
     def __init__(self, url=None):
@@ -2823,29 +2771,76 @@ class TaiwanTimes(News):
                         self.images.append(image["src"])
                     break
 
-        except Exception as e:
-            print("❌ 錯誤：", e)
-
-        driver.quit()
+        finally:
+                driver.quit()
 
 class ChinaDailyNews(News):
     def __init__(self, url=None):
         super().__init__(url)
         self.media_name="ChinaDailyNews"
 
+    def _get_article_urls(self):
+        latest_news_url = "https://www.cdns.com.tw/"
+        print(f"Loading page: {latest_news_url}")
+
+        driver=self.get_chrome_driver()
+
+        all_urls = []
+
+        try:
+            driver.get(latest_news_url)
+            time.sleep(2)  # Wait for initial load
+
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            carousel_articles = soup.select('h1.elementor-heading-title.elementor-size-default')
+            if carousel_articles:
+                for article in carousel_articles:
+                    if article:
+                        link_a=article.find('a')
+                        if link_a:
+                            url=link_a['href']
+                            all_urls.append(url)
+
+            articles=soup.select("h3.elementor-post__title")
+            if articles:
+                for article in articles:
+                    if article:
+                        link_a=article.find('a')
+                        if link_a:
+                            url=link_a['href']
+                            all_urls.append(url)
+                    
+            print("all_urls:",all_urls)
+
+        except Exception as e:
+            print("Error:",e)
+            raise e
+
+        finally:
+            driver.quit()
+
+        print(f"Total articles found: {len(all_urls)}")
+        return all_urls
+
     def parse_article(self, soup):
+        print("parsing article:",self.url)
         # Extract title
         title_tag = soup.find("meta", property="og:title")
         self.title = title_tag["content"].strip() if title_tag else "No title found"
 
         # Extract content
-        paragraphs = soup.find("div",class_="elementor-element elementor-element-b93c196 elementor-widget elementor-widget-theme-post-content")
-        passage = "\n".join(p.get_text(strip=True) for p in paragraphs)
-        self.content=passage.strip()
+        paragraphs = soup.find("div", class_="elementor-widget-theme-post-content")
+        if paragraphs:
+            p_tags = paragraphs.find_all("p")
+            passage = "\n".join(p.get_text(strip=True) for p in p_tags if p)
+            self.content = passage.strip()
 
         # Extract date
-        date=soup.find("span",class_="elementor-icon-list-text elementor-post-info__item elementor-post-info__item--type-date").get_text()
-        self.published_at=standardDateToTimestamp(date)
+        date_span=soup.find("span",class_="elementor-icon-list-text elementor-post-info__item elementor-post-info__item--type-date")
+        if date_span:
+            date=date_span.get_text()
+            if date:
+                self.published_at=standardDateToTimestamp(date)
         
         # Extract images
         image_selectors=[
@@ -2866,19 +2861,20 @@ class ChinaDailyNews(News):
         p_elements = div_element.find_all("p")
         if p_elements:
             # Get the full text from the first <p> tag
-            raw_text = p_elements[0].get_text()
-            
-            # Check which name format is present
-            if '記者' in raw_text and ('∕' in raw_text or '/' in raw_text):
-                # Case 1: "記者王超群∕台北報導"
-                # This removes the "記者" prefix, splits the string at the slash,
-                # and takes the first part (the name).
-                name = raw_text.replace('記者', '').split('∕')[0]
-            else:
-                # Case 2: "王崑義"
-                # The entire string is the name.
-                name = raw_text
-            self.authors.append(name.strip())
+            p_element = p_elements[0]
+            if p_element:
+                raw_text=p_element.get_text()
+                # Check which name format is present
+                if '記者' in raw_text and ('∕' in raw_text or '/' in raw_text):
+                    # Case 1: "記者王超群∕台北報導"
+                    # This removes the "記者" prefix, splits the string at the slash,
+                    # and takes the first part (the name).
+                    name = raw_text.replace('記者', '').split('∕')[0]
+                else:
+                    # Case 2: "王崑義"
+                    # The entire string is the name.
+                    name = raw_text
+                self.authors.append(name.strip())
 
         # for element in p_elements:
         #     text=element.get_text()
@@ -3024,7 +3020,6 @@ class NextAppleNews(News):
     def _get_article_urls(self):
         max_pages=self.max_pages
         def fetch_page_articles(page):
-            base_url = "https://tw.nextapple.com"
             latest_news_url = f"https://tw.nextapple.com/realtime/latest/{page}"
             print(f"Loading page: {latest_news_url}")
 
@@ -3345,7 +3340,7 @@ class MirrorMedia(News):
                     origin_span=origin_div.find("span")
                     if origin_span:
                         origin=origin_span.get_text()
-                        if origin:
+                        if origin!="MirrorMedia":
                             try:
                                 self.origin=chineseMediaTranslationUtil.map_chinese_media_to_enum(origin)
                             except ValueError as e:
@@ -3410,10 +3405,8 @@ class MirrorMedia(News):
             print("self.published_at:",self.published_at)
             print("self.origin:",self.origin)
             
-        except Exception as e:
-            print("❌ 錯誤：", e)
-
-        driver.quit()
+        finally:
+                driver.quit()
 
 class NowNews(News):
     def __init__(self, url=None):
@@ -4302,11 +4295,8 @@ class FTV(News):
                         print(name)
                     else:
                         print("No match found")
-
-        except Exception as e:
-            print("❌ 錯誤：", e)
-
-        driver.quit()
+        finally:
+                driver.quit()
 
 class TaiwanNews(News):
     def __init__(self, url=None):
@@ -4425,10 +4415,8 @@ class TaiwanNews(News):
                     author=author.replace(" ","")
                     self.authors.append(author)
 
-        except Exception as e:
-            print("❌ 錯誤：", e)
-
-        driver.quit()
+        finally:
+                driver.quit()
 
 
 class CTWant(News):
@@ -4642,10 +4630,8 @@ class TSSDNews(News):
                     full_url=base_url+image["src"]
                     self.images.append(full_url)
 
-        except Exception as e:
-            print("❌ 錯誤：", e)
-
-        driver.quit()
+        finally:
+                driver.quit()
 
 class CTS(News):
     def __init__(self, url=None):

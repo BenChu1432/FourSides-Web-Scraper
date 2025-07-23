@@ -1,9 +1,17 @@
 from sqlalchemy.future import select
-from app.schemas.news import NewsFilter, NewsResponse
-from app.models.newsEntity import NewsEntity
-from sqlalchemy import select, and_
+from app.dto.dto import NewsFilter, NewsResponse
+from app.modals.errorEntity import ErrorEntity
+from app.modals.newsEntity import NewsEntity
+from sqlalchemy import Integer, column, func, select, and_
 from typing import List
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import update, literal_column
+from sqlalchemy import Table, Column, String, select
+from sqlalchemy import values as sa_values
+from typing import List
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.enums.enums import MediaNameEnum,OriginEnum  # make sure to import the Enum class
+
 
 async def filter_existing_articles(urls: List[str], db) -> List[NewsEntity]:
     if not urls:
@@ -77,6 +85,31 @@ async def store_all_articles(articles:List[NewsEntity],db):
     await db.commit()
     return articles
 
+async def update_all_articles(articles: List[NewsEntity], db: AsyncSession):
+    for article in articles:
+        stmt = (
+            update(NewsEntity)
+            .where(NewsEntity.url == article.url)
+            .values({
+                "title": article.title,
+                "content": article.content,
+                "content_en": article.content_en,
+                "published_at": article.published_at,
+                "authors": article.authors,
+                "images": article.images,
+                "origin": article.origin,
+            })
+        )
+        await db.execute(stmt)
+    await db.commit()
+    return articles  
+
 async def get_news(db, news_id):
     result = await db.execute(select(NewsEntity).where(NewsEntity.id == news_id))
     return result.scalar_one_or_none()
+
+
+async def get_news_urls_that_need_retrying(news_media,db):
+   result=await db.execute(select(ErrorEntity.url).where(ErrorEntity.media_name == news_media))
+   urls = result.scalars().all()
+   return urls

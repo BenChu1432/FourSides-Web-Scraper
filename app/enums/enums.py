@@ -43,7 +43,6 @@ class MediaNameEnum(str, Enum):
     LibertyTimesNet = "LibertyTimesNet"
     ChinaTimes = "ChinaTimes"
     CNA = "CNA"
-    TaiwanEconomicTimes = "TaiwanEconomicTimes"
     PTSNews = "PTSNews"
     CTEE = "CTEE"
     MyPeopleVol = "MyPeopleVol"

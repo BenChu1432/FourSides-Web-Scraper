@@ -1,6 +1,6 @@
 from typing import Dict, List
 from app.dto.dto import FetchUrlsResult
-from app.models.errorEntity import ErrorEntity, ErrorTypeEnum
+from app.modals.errorEntity import ErrorEntity, ErrorTypeEnum
 from sqlalchemy.ext.asyncio import AsyncSession
 
 async def log_error(

@@ -1,7 +1,7 @@
 from together import Together
 import os
 import asyncio
-from app.models.newsEntity import NewsEntity
+from app.modals.newsEntity import NewsEntity
 
 
 TOGETHER_AI_API_KEY = os.getenv("TOGETHER_AI_API_KEY")
