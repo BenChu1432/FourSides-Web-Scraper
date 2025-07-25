@@ -11,6 +11,7 @@ from fastapi import Depends
 from app.dto.dto import NewsFilter
 
 
+# For local development 
 router = APIRouter()
 
 @router.get("/debug-files")

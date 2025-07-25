@@ -8,10 +8,14 @@ from app.controller import news_controller
 from app.db.database import AsyncSessionLocal  # ✅ Use your existing session
 from dotenv import load_dotenv
 
+import boto3
+print("✅ Boto3 is using session from:", boto3.Session().__class__)
+
+
 load_dotenv()
 try:
     # Set up a session without specifying a profile
-    session = boto3.Session(profile_name='disposable-account')
+    session = boto3.Session()
     current_profile = session.profile_name or "default"
     print("✅ Currently using AWS profile:", current_profile)
 
@@ -23,8 +27,8 @@ except NoCredentialsError:
     print("❌ No credentials found.")
 except Exception as e:
     print("❌ Error:", e)
-session = boto3.Session(profile_name='disposable-account')
-sqs = session.client('sqs', region_name='ap-east-1')
+session = boto3.Session()
+sqs = session.client('sqs', region_name='ap-northeast-1')
 SQS_QUEUE_URL = os.getenv("SQS_QUEUE_URL")
 
 async def process_message(message_body):
