@@ -7,6 +7,7 @@ async def log_error(
     db: AsyncSession,
     errors: List[Dict]
 ):
+    print("errors:",errors)
     for error_data in errors:
         error = ErrorEntity(
             failure_type=ErrorTypeEnum(error_data["failure_type"]),
