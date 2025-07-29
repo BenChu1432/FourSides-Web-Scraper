@@ -1,3 +1,4 @@
+from app.db.database import AsyncSessionLocal
 from scrapers.news import News
 from app.service import error_service, news_service
 import asyncio
@@ -13,6 +14,7 @@ async def scrape_unique_news(parser_class: type[News],db_factory):
     ("✅ Ready to remove duplicate urls!")
     # Remove duplicate urls
     try:
+        print("Trying to filter out duplicate urls!!!!!")
         async with db_factory() as db:
                 unique_urls = await news_service.filter_existing_articles(article_urls, db)
     except Exception as e:
@@ -45,7 +47,8 @@ async def scrape_unique_news(parser_class: type[News],db_factory):
                 all_errors.extend(errors)
 
     if all_errors:
-        await error_service.log_error(db, all_errors)
+        async with db_factory() as db:
+            await error_service.log_error(db, all_errors)
 
     return list_of_news
 
