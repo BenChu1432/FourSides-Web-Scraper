@@ -8,7 +8,10 @@ load_dotenv()
 DATABASE_URL = os.getenv("ASYNC_DATABASE_URL")
 print("DATABASE_URL:",DATABASE_URL)
 # log all SQL statements for debugging
-engine = create_async_engine(DATABASE_URL, echo=True, pool_pre_ping=True)
+engine = create_async_engine(DATABASE_URL, echo=True, pool_pre_ping=True,connect_args={
+        "timeout": 120,
+        "command_timeout": 120
+    })
 
 AsyncSessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()

@@ -12,7 +12,7 @@ class NewsEntity(Base):
     media_name = Column(
         SAEnum(
             enums.MediaNameEnum,
-            name="news_media_name_enum",   # <-- match this to DB enum type name
+            name="MediaNameEnum",   # <-- match this to DB enum type name
             create_type=False
         ),
         nullable=True
@@ -24,7 +24,7 @@ class NewsEntity(Base):
     origin = Column(
         SAEnum(
             enums.OriginEnum,
-            name="news_origin_enum",       # <-- match this to DB enum type name
+            name="OriginEnum",       # <-- match this to DB enum type name
             create_type=False
         ),
         nullable=True
