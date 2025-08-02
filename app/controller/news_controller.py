@@ -6,7 +6,7 @@ from typing import List
 
 from app.dto.dto import NewsRequest, NewsResponse
 from app.dto.dto import NewsFilter
-from app.service import error_service, news_service
+from app.service import news_service, scrape_service
 from constant import NEWS_CLASSES
 from scrapers.news import News
 
@@ -29,7 +29,7 @@ async def parse_news_article(news: NewsRequest, db: AsyncSession) -> NewsRespons
     article: News = parser_class(news.url)
     result = article.parse_article_with_errors()
     if result.errors:
-        await error_service.log_error(db, result.errors)
+        await scrape_service.log_scrape_error(db, result.errors)
 
     return NewsResponse(
         url=article.url,
@@ -49,8 +49,7 @@ async def scrape_translate_and_store_news_for_one_news_outlet(media_name: str) -
     try:
         response=await news_service.scrape_translate_and_store_news_for_one_news_outlet(parser_class)
     except Exception as e:
-        print("error:",e)
-        raise e
+        print("Either scrape/translate/store goes wrong!:",e)
 
     return response
 

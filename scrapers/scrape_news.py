@@ -1,25 +1,29 @@
 from app.db.database import AsyncSessionLocal
+from app.aws_lambda.send_logs_to_db import send_log_to_lambda
+from app.enums.enums import ErrorTypeEnum
 from scrapers.news import News
-from app.service import error_service, news_service
+from app.service import news_service, scrape_service
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 # Fetch urls and return list of news articles
-# pen a short-lived DB session where needed
-async def scrape_unique_news(parser_class: type[News],db_factory):
+async def scrape_unique_news(parser_class: type[News],jobId,db_factory):
     # Fetch urls
     scraper = parser_class()
     scrape_urls_result = scraper.get_article_urls_with_errors()
     article_urls = scrape_urls_result.urls
     ("✅ Ready to remove duplicate urls!")
     # Remove duplicate urls
+    # ******************************************DB Connection******************************************
     try:
         print("Trying to filter out duplicate urls!!!!!")
         async with db_factory() as db:
                 unique_urls = await news_service.filter_existing_articles(article_urls, db)
     except Exception as e:
-        print("error:",e)
-        raise e
+        print("❌ Failed to filter existing articles:", e)
+        await send_log_to_lambda(jobId,failure_type=ErrorTypeEnum.DATABASE_TIMEOUT,detail=f'"❌ Failed to filter existing articles:", {e}',media_name=scraper.media_name,urls=[scraper.url])
+        return []
+    # ******************************************DB Connection******************************************
     
 
     # Scrape content from urls
@@ -45,10 +49,17 @@ async def scrape_unique_news(parser_class: type[News],db_factory):
             list_of_news.append(article)
             if errors:
                 all_errors.extend(errors)
-
+     # ******************************************DB Connection******************************************
     if all_errors:
-        async with db_factory() as db:
-            await error_service.log_error(db, all_errors)
+        try:
+            async with db_factory() as db:
+                await scrape_service.log_scrape_error(db, all_errors)
+        except Exception as e:
+            print("❌ Failed to log errors to DB:", e)
+            await send_log_to_lambda(jobId,failure_type=ErrorTypeEnum.DATABASE_TIMEOUT,detail=f"❌ Failed to log errors to DB:, {e}",media_name=scraper.media_name,urls=[scraper.url])
+            # Fallback to Lambda
+
+     # ******************************************DB Connection******************************************
 
     return list_of_news
 

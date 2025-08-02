@@ -1,6 +1,6 @@
 from sqlalchemy.future import select
 from app.dto.dto import NewsFilter, NewsResponse
-from app.modals.errorEntity import ErrorEntity
+from app.modals.scrapeEntity import ScrapeFailure
 from app.modals.newsEntity import NewsEntity
 from sqlalchemy import Integer, column, func, select, and_
 from typing import List
@@ -110,6 +110,6 @@ async def get_news(db, news_id):
 
 
 async def get_news_urls_that_need_retrying(news_media,db):
-   result=await db.execute(select(ErrorEntity.url).where(ErrorEntity.media_name == news_media))
+   result=await db.execute(select(ScrapeFailure.url).where(ScrapeFailure.media_name == news_media))
    urls = result.scalars().all()
    return urls

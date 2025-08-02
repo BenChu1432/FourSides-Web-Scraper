@@ -13,3 +13,4 @@ asyncpg==0.29.0
 webdriver-manager==4.0.2
 together==1.4.6
 boto3==1.39.12
+aiohttp==3.12.13

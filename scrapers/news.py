@@ -97,13 +97,13 @@ class News(ABC):
                 errors.append({
                     "failure_type": ErrorTypeEnum.ZERO_URLS_FETCHED,
                     "media_name": self.media_name,
-                    "reason": "No URLs found",
+                    "detail": "No URLs found",
                 })
         except Exception as e:
             errors.append({
                 "failure_type": ErrorTypeEnum.OTHERS,
                 "media_name": self.media_name,
-                "reason": str(e)
+                "detail": str(e)
             })
         result=FetchUrlsResult(urls, errors)
         return result
@@ -145,23 +145,23 @@ class News(ABC):
             if self.content is None or self.content=="":
                 errors.append({
                     "failure_type": ErrorTypeEnum.PARSING_FAILURE,
-                    "url":self.url,
+                    "url":[self.url],
                     "media_name": self.media_name,
-                    "reason": "No content found"
+                    "detail": "No content found"
                 })
         except UnmappedMediaNameError as e:
             errors.append({
                 "failure_type": ErrorTypeEnum.UNMAPPED_MEDIA,
-                "url": self.url,
+                "url": [self.url],
                 "media_name": self.media_name,
-                "reason": f"Cannot find {self.media_name} in the map"
+                "detail": f"Cannot find {self.media_name} in the map"
             })
         except Exception as e:
             errors.append({
                 "failure_type": ErrorTypeEnum.PARSING_ERROR,
-                "url":self.url,
+                "url":[self.url],
                 "media_name": self.media_name,
-                "reason": str(e)
+                "detail": str(e)
             })
 
         return ParseArticleResult(errors)
