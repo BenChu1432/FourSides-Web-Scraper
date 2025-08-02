@@ -42,7 +42,8 @@ async def send_log_to_lambda(
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(AWS_LOGGING_LAMBDA_URL, json=payload, headers=headers) as response:
+            url=f'{AWS_LOGGING_LAMBDA_URL}/create/scrape-failure'
+            async with session.post(url, json=payload, headers=headers) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     logger.error("⚠️ Lambda logging failed: %s", error_text)
