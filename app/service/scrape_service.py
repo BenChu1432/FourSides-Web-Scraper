@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 async def log_scrape_job(
     db: AsyncSession,
     media_name: str,
-    machine_id: str="unknown_machine",
+    machine_id,
 ) -> int:
     """
     Logs a scrape job with no associated errors.
