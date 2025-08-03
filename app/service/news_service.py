@@ -25,6 +25,7 @@ async def scrape_translate_and_store_news_for_one_news_outlet(parser_class: Type
     # Get machine ID
     try:
         machine_id = await get_instance_id()
+        print("machine_id:",machine_id)
         if not machine_id:
             machine_id = 'unknown machine'
     except Exception as e:

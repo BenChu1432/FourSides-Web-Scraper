@@ -9,5 +9,5 @@ async def get_instance_id():
         response.raise_for_status()
         return response.text
     except requests.RequestException as e:
-        print(f"Error retrieving {path}: {e}")
+        print(f"🤖 Error retrieving {path}: {e}")
         return None
