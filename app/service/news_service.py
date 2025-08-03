@@ -56,7 +56,7 @@ async def scrape_translate_and_store_news_for_one_news_outlet(parser_class: Type
      # ******************************************DB Connection******************************************
     try:
         async with AsyncSessionLocal() as db:
-            await news_repository.store_all_articles(articles, db)
+            articles=await news_repository.store_all_articles(articles, db)
     except Exception as e:
         print("❌ Failed to store articles:", e)
         urls=[article.url for article in articles]
@@ -66,6 +66,7 @@ async def scrape_translate_and_store_news_for_one_news_outlet(parser_class: Type
     try:
         async with AsyncSessionLocal() as db:
             await scrape_service.log_scrape_job_end(db,jobId)
+            return articles
     except Exception as e:
         print("❌ Cannot log finished scrape job:", e)
         urls=[article.url for article in articles]
