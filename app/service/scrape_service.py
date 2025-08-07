@@ -1,5 +1,5 @@
 import time
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from sqlalchemy import update
 from app.dto.dto import FetchUrlsResult
@@ -65,13 +65,17 @@ async def log_scrape_job_end(
 async def log_scrape_error(
     db: AsyncSession,
     errors: List[Dict],
-    job_id: int = None,  # Optional: associate with a ScrapeJob
+    job_id: Optional[int] = None,
 ):
     for error_data in errors:
+        # 將 HttpUrl 或其他非 str 類型轉成 str
+        urls = error_data.get("url", [])
+        urls = [str(url) for url in urls] if isinstance(urls, list) else []
+
         error = ScrapeFailure(
             failure_type=ErrorTypeEnum(error_data["failure_type"]),
             media_name=error_data.get("media_name"),
-            url=error_data.get("url") or [],
+            url=urls,
             detail=error_data.get("detail"),
             jobId=job_id
         )

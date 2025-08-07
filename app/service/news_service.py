@@ -72,6 +72,7 @@ async def scrape_translate_and_store_news_for_one_news_outlet(parser_class: Type
         urls=[article.url for article in articles]
         await send_log_to_lambda(jobId,failure_type=ErrorTypeEnum.DATABASE_TIMEOUT,detail=f"❌ Failed to store articles:, {e}",media_name=media_name,urls=[urls])
         return []  # or handle however makes sense for your use case
+    return []
     
 async def scrape_and_translate_news(parser_class: Type[News]):
     # Scrape

@@ -47,12 +47,10 @@ async def scrape_translate_and_store_news_for_one_news_outlet(media_name: str) -
     parser_class = NEWS_CLASSES.get(media_name)
 
     try:
-        response=await news_service.scrape_translate_and_store_news_for_one_news_outlet(parser_class)
+        await news_service.scrape_translate_and_store_news_for_one_news_outlet(parser_class)
+        return []
     except Exception as e:
         print("Either scrape/translate/store goes wrong!:",e)
-
-    return response
-
 
 async def scrape_and_store_all_taiwanese_news() -> List[NewsResponse]:
     return await news_service.scrape_and_store_all_taiwanese_news()

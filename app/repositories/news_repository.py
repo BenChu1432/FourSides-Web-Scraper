@@ -1,5 +1,10 @@
+import uuid
 from sqlalchemy.future import select
 from app.dto.dto import NewsFilter, NewsResponse
+from app.modals.authorEntity import AuthorEntity
+from app.modals.authorToNewsMediaEntity import AuthorToNewsMediaEntity
+from app.modals.newsAuthorEntity import NewsAuthorEntity
+from app.modals.newsMediaEntity import NewsMediaEntity
 from app.modals.scrapeEntity import ScrapeFailure
 from app.modals.newsEntity import NewsEntity
 from sqlalchemy import Integer, column, func, select, and_
@@ -11,6 +16,7 @@ from sqlalchemy import values as sa_values
 from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.enums.enums import MediaNameEnum,OriginEnum  # make sure to import the Enum class
+from util import traditionalChineseUtil
 
 
 async def filter_existing_articles(urls: List[str], db) -> List[NewsEntity]:
@@ -60,30 +66,120 @@ async def get_filtered_news(filter, db):
     print("data:",data)
     return data
 
-async def store_all_articles(articles:List[NewsEntity],db):
-    print("storing!!!!!!!")
-    # Check if content is null
-    
-    # Prepare list of dictionaries for bulk insert
+async def store_all_articles(articles: List[NewsEntity], db):
+    print("Storing articles...")
+
     values_to_insert = []
+    news_to_insert = []
+    author_links = []
+    media_links = []
+
     for article in articles:
-        values_to_insert.append({
-            "media_name": article.media_name,
+        if not article.url:
+            continue
+
+        # 🔍 Skip if News already exists
+        existing_news = await db.execute(
+            select(NewsEntity.id).where(NewsEntity.url == article.url)
+        )
+        if existing_news.scalars().first():
+            continue
+
+        # ✅ Handle Enum safely
+        media_name_str = getattr(article.media_name, "value", article.media_name)
+        origin_str = getattr(article.origin, "value", article.origin)
+
+        # ✅ Generate id if missing
+        article_id = getattr(article, "id", None) or uuid.uuid4()
+        article.id = article_id  # Ensure it's set for relationship use
+
+        # 📦 Prepare dict for bulk insert
+        article_dict = {
+            "id": article_id,
+            "media_name": media_name_str,
             "url": article.url,
-            "title": article.title,
-            "origin": article.origin,
-            "content": article.content,
+            "title": traditionalChineseUtil.translateIntoTraditionalChinese(article.title),
+            "origin": origin_str,
+            "content": traditionalChineseUtil.translateIntoTraditionalChinese(article.content),
             "content_en": article.content_en,
             "published_at": article.published_at,
             "authors": article.authors,
             "images": article.images,
-        })
+        }
+        values_to_insert.append(article_dict)
+        news_to_insert.append(article)
 
-    # Check if url already exists=>if exists=>skipped
-    stmt = insert(NewsEntity).values(values_to_insert).on_conflict_do_nothing(index_elements=['url'])
-    await db.execute(stmt)
+        # 🏷️ Prepare NewsMediaEntity (only once per article)
+        media = None
+        if media_name_str:
+            result = await db.execute(
+                select(NewsMediaEntity).where(NewsMediaEntity.name == media_name_str)
+            )
+            media = result.scalars().first()
+
+            if not media:
+                media = NewsMediaEntity(
+                    id=uuid.uuid4(),
+                    name=media_name_str,
+                    imageUrl=""
+                )
+                db.add(media)
+                await db.flush()
+
+        # 👤 Link authors
+        if article.authors:
+            for author_names in article.authors:
+                authors = author_names.split('、')
+                for author_name in authors:
+                    traditional_chinese_name=traditionalChineseUtil.translateIntoTraditionalChinese(author_name)
+                    result = await db.execute(
+                        select(AuthorEntity).where(AuthorEntity.name == traditional_chinese_name)
+                    )
+                    author = result.scalars().first()
+
+                    if not author:
+                        author = AuthorEntity(id=uuid.uuid4(), name=traditional_chinese_name)
+                        db.add(author)
+                        await db.flush()
+
+                    # Link News <-> Author
+                    author_links.append(NewsAuthorEntity(
+                        id=uuid.uuid4(),
+                        newsId=article.id,
+                        authorId=author.id
+                    ))
+
+                    # Link Author <-> NewsMedia
+                    if media:
+                        result = await db.execute(
+                            select(AuthorToNewsMediaEntity).where(
+                                AuthorToNewsMediaEntity.authorId == author.id,
+                                AuthorToNewsMediaEntity.newsMediaId == media.id
+                            )
+                        )
+                        if not result.scalars().first():
+                            media_links.append(AuthorToNewsMediaEntity(
+                                id=uuid.uuid4(),
+                                authorId=author.id,
+                                newsMediaId=media.id
+                            ))
+
+    # 🧾 Bulk insert News
+    if values_to_insert:
+        stmt = insert(NewsEntity).values(values_to_insert)\
+            .on_conflict_do_nothing(index_elements=["url"])
+        await db.execute(stmt)
+
+    # 🧾 Insert NewsAuthorEntity
+    for link in author_links:
+        db.add(link)
+
+    # 🧾 Insert AuthorToNewsMediaEntity
+    for link in media_links:
+        db.add(link)
+
     await db.commit()
-    return articles
+    return news_to_insert  # ✅ Return list, not None or []
 
 async def update_all_articles(articles: List[NewsEntity], db: AsyncSession):
     for article in articles:
