@@ -19,15 +19,18 @@ async def translate_article(article: NewsEntity):
             client.chat.completions.create,
             model="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
             temperature=0.2,
-        top_p=0.9,
+            top_p=0.9,
             messages=[
                 {
                     "role": "system",
-                    "content": "You're a professional translator to translate traditional Chinese into English. (For names, simply translate them into pinyin)"
+                    "content": "You are a translation engine. Translate traditional Chinese into natural, fluent English. Do not explain, do not comment, do not say anything else. Just return the translated text only. Translate names to pinyin. Output only the translation."
                 },
-                {"role": "user", "content": f"""The following is a news article in traditional Chinese. Help me translate it into English:
-                 {article.content}
-                 """}
+                {
+                    "role": "user",
+                    "content": (
+                        f"Translate the following traditional Chinese article into English. Output only the translation:\n\n{article.content}"
+                    )
+                }
             ],
         )
         print("content_en:",response.choices[0].message.content.strip())
