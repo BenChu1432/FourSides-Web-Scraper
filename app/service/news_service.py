@@ -51,7 +51,7 @@ async def scrape_translate_and_store_news_for_one_news_outlet(parser_class: Type
     print("articles:",articles)
     print("len(articles)",len(articles))
     # Translate
-    # await asyncio.gather(*[translate_article(article) for article in articles])
+    await asyncio.gather(*[translate_article(article) for article in articles])
     # Store
      # ******************************************DB Connection******************************************
     try:
