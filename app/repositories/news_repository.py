@@ -7,8 +7,8 @@ from app.modals.newsAuthorEntity import NewsAuthorEntity
 from app.modals.newsMediaEntity import NewsMediaEntity
 from app.modals.scrapeEntity import ScrapeFailure
 from app.modals.newsEntity import NewsEntity
-from sqlalchemy import Integer, column, func, select, and_
-from typing import List
+from sqlalchemy import ARRAY, TEXT, Integer, cast, column, func, or_, select, and_
+from typing import List, Optional
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import update, literal_column
 from sqlalchemy import Table, Column, String, select
@@ -209,3 +209,22 @@ async def get_news_urls_that_need_retrying(news_media,db):
    result=await db.execute(select(ScrapeFailure.url).where(ScrapeFailure.media_name == news_media))
    urls = result.scalars().all()
    return urls
+
+async def get_urls_by_news_media_where_xxx_is_null_or_the_news_is_native(news_media: str, filter: str, db):
+    query = select(NewsEntity.url).where(NewsEntity.media_name == news_media)
+
+    if filter == "author":
+        query = query.where(
+            func.coalesce(func.array_length(NewsEntity.authors, 1), 0) == 0,
+        )
+    elif filter == "published_at":
+        query = query.where(NewsEntity.published_at == None)
+    elif filter == "native":
+        query = query.where(NewsEntity.origin == "native")
+
+    result = await db.execute(query)
+    print("result:",result)
+    data = result.scalars().all()
+    urls = list(data)  # or just return data directly
+    print("urls:",urls)
+    return urls

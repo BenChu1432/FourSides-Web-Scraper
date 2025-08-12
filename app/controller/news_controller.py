@@ -2,7 +2,7 @@
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
+from typing import List, Optional
 
 from app.dto.dto import NewsRequest, NewsResponse
 from app.dto.dto import NewsFilter
@@ -65,3 +65,7 @@ async def get_news_with_filter(filter: NewsFilter, db: AsyncSession) -> List[New
 async def retry_parsing_by_media(media_name:str):
     parser_class = NEWS_CLASSES.get(media_name)
     return await news_service.retry_parsing_by_media(media_name,parser_class)
+
+async def retry_urls_where_XXX_is_null_or_the_news_is_native(media_name:str,filter: Optional[str]):
+    parser_class = NEWS_CLASSES.get(media_name)
+    return await news_service.retry_urls_where_XXX_is_null_or_the_news_is_native(media_name,filter,parser_class)

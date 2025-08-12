@@ -121,3 +121,33 @@ async def retry_parsing_by_media(media_name,parser_class):
         return await news_repository.update_all_articles(articles, db)
 
     
+async def get_urls_by_news_media_where_xxx_is_null_or_the_news_is_native(media_name,filter):
+    async with AsyncSessionLocal() as db:
+        return await news_repository.get_urls_by_news_media_where_xxx_is_null_or_the_news_is_native(media_name,filter,db)
+    
+async def retry_urls_where_XXX_is_null_or_the_news_is_native(media_name,filter,parser_class):
+    urls=[]
+    # Search for urls
+    try:
+        async with AsyncSessionLocal() as db:
+            urls=await news_repository.get_urls_by_news_media_where_xxx_is_null_or_the_news_is_native(media_name,filter,db)
+    except Exception as e:
+        print("❌ cannot fetch urls:",e)
+        return []
+    # Scrape
+    # try:
+    #     articles:List[NewsEntity]=await scrape_specified_news(parser_class,urls)
+    # except Exception as e:
+    #     print("❌ cannot scrape specified news:",e)
+    #     return []
+    # # Store
+    # try:
+    #     async with AsyncSessionLocal() as db:
+    #         articles=await news_repository.store_all_articles(articles, db)
+    # except Exception as e:
+    #     print("❌ Failed to store articles:", e)
+    #     urls=[article.url for article in articles]
+    #     return []  # or handle however makes sense for your use case
+    print("urls:",urls)
+    return urls
+    

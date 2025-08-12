@@ -1,6 +1,6 @@
-from typing import List
+from typing import List, Optional
 import concurrent
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from app.controller import news_controller
 from app.db.database import get_db
 from scrapers.news import News
@@ -41,3 +41,7 @@ async def get_news_with_filter(filter: NewsFilter, db: AsyncSession = Depends(ge
 @router.post("/retry-parsing-by-media/{media_name}", response_model=List[NewsResponse])
 async def retry_parsing_by_media(media_name: str):
     return await news_controller.retry_parsing_by_media(media_name)
+
+@router.post("/retry-news-urls-where-xxx-is-null-or-the-news-is-native/{media_name}", response_model=List[str])
+async def get_urls_by_news_media_where_xxx_is_null_or_the_news_is_native(media_name: str,filter: Optional[str] = Query(None)):
+    return await news_controller.retry_urls_where_XXX_is_null_or_the_news_is_native(media_name,filter)
