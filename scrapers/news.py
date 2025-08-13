@@ -3359,14 +3359,24 @@ class MirrorMedia(News):
             self.content = "\n".join(all_unique_texts)
 
             # Extract published date
-            div_element=soup.find("div",class_="normal__Date-sc-3b14d180-5 huFyWo")
-            if div_element is None:
-                div_element=soup.find("div",class_="external-normal-style__Date-sc-f5353e0a-5 cOlbJt")
-            print("p_element:",div_element)
-            if div_element:
-                date=div_element.get_text().replace("臺北時間","")
-                print("date:",date)
-                self.published_at=standardDateToTimestamp(date)
+            # Find all divs where class starts with 'article-info__Date'
+            date_divs = soup.select('div[class^="article-info__Date"]')
+
+            for div in date_divs:
+                text = div.get_text(strip=True)
+                if "發布時間" in text:
+                    # Split all lines of text and clean them
+                    lines = list(div.stripped_strings)
+                    print("Raw lines:", lines)
+
+                    # Try to find the second line (actual date)
+                    for i, line in enumerate(lines):
+                        if "發布時間" in line and i + 1 < len(lines):
+                            date = lines[i + 1].strip()
+                            print("Extracted publish date:", date)
+                            self.published_at = standardDateToTimestamp(date)
+                            break
+                    break
 
             # Extract author
             section=soup.find("section",class_="credits__CreditsWrapper-sc-93b3ab5-0 gReTcs normal-credits")
@@ -3375,6 +3385,19 @@ class MirrorMedia(News):
                 author_ul=section.find("ul")
                 if author_ul:
                     self.authors.append(author_ul.get_text().strip())
+
+            # Add journalist extraction separately
+            journalist_p_tags = soup.find_all("p", style="text-align: justify;")
+            for p_tag in journalist_p_tags:
+                text = p_tag.get_text().strip()
+                if text.startswith("記者"):
+                    import re
+                    match = re.search(r"記者(\S+)\s*/", text)
+                    if match:
+                        journalist_name = match.group(1)
+                        print("Journalist:", journalist_name)
+                        self.authors.append(journalist_name)
+                        break  # Stop after finding the first match
 
             # Extract images
             # native articles
@@ -3388,6 +3411,7 @@ class MirrorMedia(News):
                 for image in images:
                     print(image["src"])
                     self.images.append(image["src"])
+            
             # non-native articles
             if content_div is None:
                 content_div=soup.find_all("p",style="text-align: center;")
@@ -4846,6 +4870,22 @@ class YahooNews(News):
         #                 if author and author != "明報記者":
         #                     self.authors.append(author.strip())
         # print("self.authors:", self.authors)
+
+        # Extract publish datetime
+        # self.publish_time = None  # Initialize
+
+        # --- Extract publish time ---
+        self.publish_time = None
+
+        # Try to find ANY <time> tag with a datetime attribute
+        time_tag = soup.find("time", attrs={"datetime": True})
+        if time_tag:
+            self.publish_time = time_tag["datetime"].strip()
+            print("✅ Found datetime:", self.publish_time)
+        else:
+            print("❌ No <time> tag with datetime found")
+
+
 
         # Extract content
         content_div = soup.find("article")
