@@ -43,5 +43,5 @@ async def retry_parsing_by_media(media_name: str):
     return await news_controller.retry_parsing_by_media(media_name)
 
 @router.post("/retry-news-urls-where-xxx-is-null-or-the-news-is-native/{media_name}", response_model=List[str])
-async def get_urls_by_news_media_where_xxx_is_null_or_the_news_is_native(media_name: str,filter: Optional[str] = Query(None)):
+async def retry_urls_where_XXX_is_null_or_the_news_is_native(media_name: str,filter: Optional[str] = Query(None)):
     return await news_controller.retry_urls_where_XXX_is_null_or_the_news_is_native(media_name,filter)

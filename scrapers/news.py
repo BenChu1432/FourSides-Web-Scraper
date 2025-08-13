@@ -2963,18 +2963,43 @@ class SETN(News):
         )
         self.content=passage.strip()
 
+        # # Extract date
+        # date_selectors=[
+        #     {"selector": 'div.page-title-text'}, 
+        #     {"selector": 'div.newsTime'}, 
+        # ]
+        # for selector in date_selectors:
+        #     element=soup.select_one(selector["selector"])
+        #     if element:
+        #         time=element.find("time")
+        #         if time:
+        #             date=time.get_text()
+        #             self.published_at=standardDateToTimestamp(date)
+
         # Extract date
-        date_selectors=[
-            {"selector": 'div.page-title-text'}, 
-            {"selector": 'div.newsTime'}, 
+        date_selectors = [
+            {"selector": 'div.page-title-text'},
+            {"selector": 'div.newsTime'},
+            {"selector": 'time.pageDate'},  # ✅ New selector for your screenshot
+            {"selector": 'div#ckuse time'},  # More specific fallback
         ]
+
         for selector in date_selectors:
-            element=soup.select_one(selector["selector"])
+            element = soup.select_one(selector["selector"])
             if element:
-                time=element.find("time")
-                if time:
-                    date=time.get_text()
-                    self.published_at=standardDateToTimestamp(date)
+                # If there is a <time> tag inside, prefer that
+                time_tag = element.find("time") if element.name != "time" else element
+                if time_tag:
+                    date_text = time_tag.get_text(strip=True)
+                else:
+                    date_text = element.get_text(strip=True)
+
+                if date_text:
+                    try:
+                        self.published_at = standardDateToTimestamp(date_text)
+                        break  # ✅ Exit loop once a valid date is found
+                    except Exception as e:
+                        print(f"⚠️ Failed to parse date from '{date_text}':", e)
 
         # Extract author
         div_element = soup.find("article")
@@ -4169,9 +4194,27 @@ class CTINews(News):
             info=article_info.find_all("a")
             date=info[0].get_text()
             author=info[1].get_text()
-            # date=text.replace("發布","").strip()
+        # Extract published time (e.g., 2025/08/13 15:49)
+        time_span = soup.find("span", class_="text-gray-400")
+        # Extract published time (e.g., 發布: 2025/08/13 15:49)
+        try:
+            time_span = soup.find("span", class_="text-gray-400")
+            if time_span:
+                time_text = time_span.get_text(strip=True)
+                print("published time text:", time_text)
+                
+                if "發布:" in time_text:
+                    datetime_str = time_text.replace("發布:", "").strip()
+                    print("published datetime:", datetime_str)
+                    # Optionally, convert to timestamp
+                    self.published_at = standardDateToTimestamp(datetime_str)
+        except Exception as e:
+            print("Error extracting time:", e)
             self.published_at=standardDateToTimestamp(date)
             self.authors.append(author)
+
+
+
 
             author=info[1]
             print("info[0]:",info[0])
