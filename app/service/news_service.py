@@ -142,7 +142,7 @@ async def retry_urls_where_XXX_is_null_or_the_news_is_native(media_name,filter,p
     # # Store
     try:
         async with AsyncSessionLocal() as db:
-            articles=await news_repository.store_all_articles(articles, db)
+            articles=await news_repository.update_all_articles(articles, db)
     except Exception as e:
         print("❌ Failed to store articles:", e)
         urls=[article.url for article in articles]

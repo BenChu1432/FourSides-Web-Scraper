@@ -78,7 +78,7 @@ async def store_all_articles(articles: List[NewsEntity], db):
         if not article.url:
             continue
 
-        # 🔍 Skip if News already exists
+        # 🔍 Skip if sews already exists
         existing_news = await db.execute(
             select(NewsEntity.id).where(NewsEntity.url == article.url)
         )
@@ -181,14 +181,15 @@ async def store_all_articles(articles: List[NewsEntity], db):
     await db.commit()
     return news_to_insert  # ✅ Return list, not None or []
 
+
 async def update_all_articles(articles: List[NewsEntity], db: AsyncSession):
     for article in articles:
         stmt = (
             update(NewsEntity)
             .where(NewsEntity.url == article.url)
             .values({
-                "title": article.title,
-                "content": article.content,
+                "title": traditionalChineseUtil.safeTranslateIntoTraditionalChinese(article.title),
+                "content": traditionalChineseUtil.safeTranslateIntoTraditionalChinese(article.content),
                 "content_en": article.content_en,
                 "published_at": article.published_at,
                 "authors": article.authors,
