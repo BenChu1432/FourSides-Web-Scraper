@@ -118,7 +118,9 @@ async def retry_scraping_existent_news_by_media(media_name,parser_class):
     await asyncio.gather(*[translate_article(article) for article in articles])
     # Update
     async with AsyncSessionLocal() as db:
-        return await news_repository.update_all_articles(articles, db)
+        await news_repository.update_all_articles(articles, db)
+    
+    return urls
 
     
 async def get_urls_by_news_media_where_xxx_is_null_or_the_news_is_native(media_name,filter):
