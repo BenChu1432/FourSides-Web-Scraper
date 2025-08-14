@@ -67,6 +67,13 @@ def IntiumChineseDateToTimestamp(date_str):
     return datetime_obj.timestamp()
 
 
+
+def YahooNewsToTimestamp(date_str: str):
+    # Parse the ISO 8601 date string with UTC awareness
+    date_obj = dateparser.parse(date_str, settings={'TO_TIMEZONE': 'UTC', 'RETURN_AS_TIMEZONE_AWARE': True})
+    return int(date_obj.timestamp())
+
+
 def HKEJDateToTimestamp(date_str: str):
     # Preprocess common Chinese expressions
     replacements = {

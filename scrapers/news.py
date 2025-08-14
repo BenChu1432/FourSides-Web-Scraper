@@ -20,7 +20,7 @@ from app.dto.dto import FetchUrlsResult, ParseArticleResult
 from app.enums.enums import ErrorTypeEnum
 from app.errors.NewsParsingError import UnmappedMediaNameError
 from util import chineseMediaTranslationUtil
-from util.timeUtil import HKEJDateToTimestamp, IntiumChineseDateToTimestamp, NowTVDateToTimestamp, RTHKChineseDateToTimestamp, SCMPDateToTimestamp, SingTaoDailyChineseDateToTimestamp, TheCourtNewsDateToTimestamp, standardChineseDatetoTimestamp, standardDateToTimestamp
+from util.timeUtil import HKEJDateToTimestamp, IntiumChineseDateToTimestamp, NowTVDateToTimestamp, RTHKChineseDateToTimestamp, SCMPDateToTimestamp, SingTaoDailyChineseDateToTimestamp, TheCourtNewsDateToTimestamp, standardChineseDatetoTimestamp, standardDateToTimestamp,YahooNewsToTimestamp
 import concurrent.futures
 import time
 import platform
@@ -4875,7 +4875,7 @@ class YahooNews(News):
                     self.images.append(img["src"])
             print("self.images:", self.images)
 
-        # Extract published date
+        #Extract published date
         date_div = soup.find("div", class_="caas-attr-time-style")
         if date_div:
             date_time=date_div.find("time")
@@ -4886,7 +4886,9 @@ class YahooNews(News):
                     self.published_at = standardChineseDatetoTimestamp(date)
         if self.published_at is None:
             print("self.published_at:", self.published_at)
-        
+            
+
+
 
         # Extract origin
         image_div=soup.find("div",class_="mb-2 flex items-center justify-between lg:justify-start")
@@ -4902,32 +4904,34 @@ class YahooNews(News):
         
 
         # Extract authors
-        # self.authors = []
-        # login_div = soup.find("div", class_="articlelogin")
-        # if login_div:
-        #     h2 = login_div.find("h2")
-        #     if h2:
-        #         authors_text = h2.get_text(strip=True)
-        #         if authors_text:
-        #             for author in authors_text.split(" "):
-        #                 if author and author != "明報記者":
-        #                     self.authors.append(author.strip())
-        # print("self.authors:", self.authors)
+        self.authors = []
+
+        # Find the div that contains the span
+        author_div = soup.find("div", class_="mb-0.5")
+        if author_div:
+            # Find the span with author info
+            span = author_div.find("span")
+            if span:
+                authors_text = span.get_text(strip=True)
+                if authors_text:
+                    # Split by separator "｜" (full-width vertical bar)
+                    for author in authors_text.split("｜"):
+                        if author and "記者" not in author:  # Filter out job titles
+                            self.authors.append(author.strip())
+
+        print("self.authors:", self.authors)
 
         # Extract publish datetime
         # self.publish_time = None  # Initialize
 
-        # --- Extract publish time ---
-        self.publish_time = None
-
         # Try to find ANY <time> tag with a datetime attribute
         time_tag = soup.find("time", attrs={"datetime": True})
         if time_tag:
-            self.publish_time = time_tag["datetime"].strip()
-            print("✅ Found datetime:", self.publish_time)
+            time = time_tag["datetime"].strip()
+            self.published_at=YahooNewsToTimestamp(time)
+            print("✅ Found datetime:", self.published_at)
         else:
             print("❌ No <time> tag with datetime found")
-
 
 
         # Extract content
