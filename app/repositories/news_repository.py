@@ -184,6 +184,11 @@ async def store_all_articles(articles: List[NewsEntity], db):
 
 async def update_all_articles(articles: List[NewsEntity], db: AsyncSession):
     for article in articles:
+        # Fix: Ensure article.url is a string
+        if isinstance(article.url, list) and len(article.url) > 0:
+            article.url = article.url[0]  # Or handle accordingly
+        elif isinstance(article.url, list):
+            continue  # Or raise error/log invalid data
         stmt = (
             update(NewsEntity)
             .where(NewsEntity.url == article.url)
