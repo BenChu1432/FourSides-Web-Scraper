@@ -107,8 +107,14 @@ async def retry_scraping_existent_news_by_media(media_name,parser_class):
         urls=await news_repository.retry_scraping_existent_news_by_media(media_name,db)
         print("urls:",urls)
     # Scraping
+    flattened_urls=[]
+    for u in urls:
+        if isinstance(u, list) and u:
+            flattened_urls.append(u[0])
+        elif isinstance(u, str):
+            flattened_urls.append(u)
     try:
-        articles:List[NewsEntity] = await scrape_specified_news(parser_class,urls)
+        articles:List[NewsEntity] = await scrape_specified_news(parser_class,flattened_urls)
     except Exception as e:
         print("error:",e)
         raise e
@@ -119,8 +125,7 @@ async def retry_scraping_existent_news_by_media(media_name,parser_class):
     # Update
     async with AsyncSessionLocal() as db:
         await news_repository.update_all_articles(articles, db)
-    
-    return urls
+    return flattened_urls
 
     
 async def get_urls_by_news_media_where_xxx_is_null_or_the_news_is_native(media_name,filter):
