@@ -38,9 +38,9 @@ async def fetch_all_news():
 async def get_news_with_filter(filter: NewsFilter, db: AsyncSession = Depends(get_db)):
     return await news_controller.get_news_with_filter(filter, db)
 
-@router.post("/retry-parsing-by-media/{media_name}", response_model=List[NewsResponse])
-async def retry_parsing_by_media(media_name: str):
-    return await news_controller.retry_parsing_by_media(media_name)
+@router.post("/retry-scraping-existent-news-by-media/{media_name}", response_model=List[NewsResponse])
+async def retry_scraping_existent_news_by_media(media_name: str):
+    return await news_controller.retry_scraping_existent_news_by_media(media_name)
 
 @router.post("/retry-news-urls-where-xxx-is-null-or-the-news-is-native/{media_name}", response_model=List[str])
 async def retry_urls_where_XXX_is_null_or_the_news_is_native(media_name: str,filter: Optional[str] = Query(None)):

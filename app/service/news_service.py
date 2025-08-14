@@ -102,9 +102,9 @@ async def get_filtered_news(filter:NewsFilter, db):
     return news_responses
 
 
-async def retry_parsing_by_media(media_name,parser_class):
+async def retry_scraping_existent_news_by_media(media_name,parser_class):
     async with AsyncSessionLocal() as db:
-        urls=await news_repository.get_news_urls_that_need_retrying(media_name,db)
+        urls=await news_repository.retry_scraping_existent_news_by_media(media_name,db)
         print("urls:",urls)
     # Scraping
     try:
@@ -124,6 +124,7 @@ async def retry_parsing_by_media(media_name,parser_class):
 async def get_urls_by_news_media_where_xxx_is_null_or_the_news_is_native(media_name,filter):
     async with AsyncSessionLocal() as db:
         return await news_repository.get_urls_by_news_media_where_xxx_is_null_or_the_news_is_native(media_name,filter,db)
+        
     
 async def retry_urls_where_XXX_is_null_or_the_news_is_native(media_name,filter,parser_class):
     urls=[]
@@ -149,4 +150,5 @@ async def retry_urls_where_XXX_is_null_or_the_news_is_native(media_name,filter,p
         return []  # or handle however makes sense for your use case
     print("urls:",urls)
     return urls
+
     

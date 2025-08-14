@@ -62,9 +62,9 @@ async def get_news_with_filter(filter: NewsFilter, db: AsyncSession) -> List[New
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
-async def retry_parsing_by_media(media_name:str):
+async def retry_scraping_existent_news_by_media(media_name:str):
     parser_class = NEWS_CLASSES.get(media_name)
-    return await news_service.retry_parsing_by_media(media_name,parser_class)
+    return await news_service.retry_scraping_existent_news_by_media(media_name,parser_class)
 
 async def retry_urls_where_XXX_is_null_or_the_news_is_native(media_name:str,filter: Optional[str]):
     parser_class = NEWS_CLASSES.get(media_name)

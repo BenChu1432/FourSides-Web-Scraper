@@ -206,7 +206,7 @@ async def get_news(db, news_id):
     return result.scalar_one_or_none()
 
 
-async def get_news_urls_that_need_retrying(news_media,db):
+async def retry_scraping_existent_news_by_media(news_media,db):
    result=await db.execute(select(ScrapeFailure.url).where(ScrapeFailure.media_name == news_media))
    urls = result.scalars().all()
    return urls
