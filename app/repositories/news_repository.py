@@ -220,6 +220,8 @@ async def get_urls_by_news_media_where_xxx_is_null_or_the_news_is_native(news_me
         )
     elif filter == "published_at":
         query = query.where(NewsEntity.published_at == None)
+    elif filter == "title":
+        query = query.where(NewsEntity.title == None)
     elif filter == "native":
         query = query.where(NewsEntity.origin == "native")
 
