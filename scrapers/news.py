@@ -2175,6 +2175,19 @@ class CNA(News):
                 date=element.get_text()
                 self.published_at=standardDateToTimestamp(date)
                 break
+        # Additional extraction from <p class="article-time"> inside <div class="article-info">
+        try:
+            article_time_tag = soup.find("p", class_="article-time")
+            print("Found article_time_tag:", article_time_tag)
+
+            if article_time_tag:
+                datetime_str = article_time_tag.get_text(strip=True)
+                print("Extracted datetime from article-time:", datetime_str)
+                self.published_at = standardDateToTimestamp(datetime_str)
+        except Exception as e:
+            print("Error extracting from <p class='article-time'>:", e)
+
+
         print("self.published_at:",self.published_at)
 
 
@@ -3402,6 +3415,17 @@ class MirrorMedia(News):
                             self.published_at = standardDateToTimestamp(date)
                             break
                     break
+            # Additional extraction from <div class="external-normal-style__Date-sc-e92c822f-5 ...">
+            try:
+                date_div = soup.find("div", class_="external-normal-style__Date-sc-e92c822f-5")
+                print("Found date_div:", date_div)
+
+                if date_div:
+                    datetime_str = date_div.get_text(strip=True).split("臺北時間")[0].strip()
+                    print("Extracted datetime text from date_div:", datetime_str)
+                    self.published_at = standardDateToTimestamp(datetime_str)
+            except Exception as e:
+                print("Error extracting from external-normal-style__Date div:", e)
 
             # Extract author
             section=soup.find("section",class_="credits__CreditsWrapper-sc-93b3ab5-0 gReTcs normal-credits")
@@ -3649,6 +3673,22 @@ class StormMedia(News):
             date=div_element.get_text()
             print("date:",date)
             self.published_at=standardDateToTimestamp(date)
+
+        # Additional extraction from nested <div data-v-xxxx> inside a date container
+        try:
+            container_div = soup.find("div", class_="my-4 flex gap-x-5 text-smg-typography-body-16-r text-smg-gray-600")
+            print("Found container_div:", container_div)
+
+            if container_div:
+                inner_div = container_div.find("div")  # First inner <div>
+                print("Found inner_div:", inner_div)
+
+                if inner_div:
+                    datetime_str = inner_div.get_text(strip=True)
+                    print("Extracted datetime from inner_div:", datetime_str)
+                    self.published_at = standardDateToTimestamp(datetime_str)
+        except Exception as e:
+            print("Error extracting from nested divs:", e)
 
         # Extract author
         self.authors.append(soup.find("a",class_="generalLink text-smg-typography-caption-14-r text-smg-red-primary hover:underline").get_text().strip())
@@ -3972,6 +4012,16 @@ class ETtoday(News):
             if element:
                     date=element.get_text(strip=True)
                     self.published_at = standardDateToTimestamp(date)
+        # Additional extraction from <time> tag with 'datetime' attribute
+        try:
+            published_time_tag = soup.find("time", itemprop="datePublished")
+            print("Found published_time_tag:", published_time_tag)
+            if published_time_tag and published_time_tag.has_attr("datetime"):
+                datetime_str = published_time_tag["datetime"]
+                print("Extracted datetime attribute:", datetime_str)
+                self.published_at = standardDateToTimestamp(datetime_str)
+        except Exception as e:
+            print("Error extracting from <time itemprop='datePublished'>:", e)
 
         print("self.published_at:", self.published_at)
 
