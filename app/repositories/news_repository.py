@@ -203,15 +203,19 @@ async def update_all_articles(articles: List[NewsEntity], db: AsyncSession):
             })
         )
         await db.execute(stmt)
-    await db.commit()
-    return articles  
+    await db.commit()   
 
 async def get_news(db, news_id):
     result = await db.execute(select(NewsEntity).where(NewsEntity.id == news_id))
     return result.scalar_one_or_none()
 
 
-async def retry_scraping_existent_news_by_media(news_media,db):
+async def get_scraping_existent_news_urls_by_media(news_media,db):
+   result=await db.execute(select(NewsEntity.url).where(ScrapeFailure.media_name == news_media))
+   urls = result.scalars().all()
+   return urls
+
+async def get_scraping_failed_news_urls_by_media(news_media,db):
    result=await db.execute(select(ScrapeFailure.url).where(ScrapeFailure.media_name == news_media))
    urls = result.scalars().all()
    return urls

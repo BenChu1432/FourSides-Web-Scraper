@@ -104,7 +104,7 @@ async def get_filtered_news(filter:NewsFilter, db):
 
 async def retry_scraping_existent_news_by_media(media_name,parser_class):
     async with AsyncSessionLocal() as db:
-        urls=await news_repository.retry_scraping_existent_news_by_media(media_name,db)
+        urls=await news_repository.get_scraping_existent_news_urls_by_media(media_name,db)
         print("urls:",urls)
     # Scraping
     try:
