@@ -184,11 +184,7 @@ async def store_all_articles(articles: List[NewsEntity], db):
 
 async def update_all_articles(articles: List[NewsEntity], db: AsyncSession):
     for article in articles:
-        # Fix: Ensure article.url is a string
-        if isinstance(article.url, list) and len(article.url) > 0:
-            article.url = article.url[0]  # Or handle accordingly
-        elif isinstance(article.url, list):
-            continue  # Or raise error/log invalid data
+        print("article.url:",article.url)
         stmt = (
             update(NewsEntity)
             .where(NewsEntity.url == article.url)
@@ -203,7 +199,7 @@ async def update_all_articles(articles: List[NewsEntity], db: AsyncSession):
             })
         )
         await db.execute(stmt)
-    await db.commit()   
+    await db.commit()
 
 async def get_news(db, news_id):
     result = await db.execute(select(NewsEntity).where(NewsEntity.id == news_id))

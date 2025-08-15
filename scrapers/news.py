@@ -1070,6 +1070,18 @@ class VOC(News):
         title = soup.find("h1").get_text()
         self.title=title
 
+        # Additional extraction from <h1 class="title pg-title">
+        try:
+            h1_title = soup.find("h1", class_="title pg-title")
+            print("Found h1_title:", h1_title)
+
+            if h1_title:
+                title_text = h1_title.get_text(strip=True)
+                print("Extracted title text:", title_text)
+                self.title = title_text
+        except Exception as e:
+            print("Error extracting from <h1 class='title pg-title'>:", e)
+
         # Extract content
         content_div = soup.find("div", id="article-content")
         if content_div:
@@ -3396,6 +3408,26 @@ class MirrorMedia(News):
 
             self.content = "\n".join(all_unique_texts)
 
+            # Additional content extraction from <section class="external-article-content__Wrapper-sc-30e70ae7-0 lhKTuM">
+            try:
+                extra_container = soup.select_one("section.external-article-content__Wrapper-sc-30e70ae7-0")
+                print("extra_container:", extra_container)
+
+                if extra_container:
+                    for p in extra_container.find_all("p"):
+                        text = p.get_text(strip=True)
+                        if text and text not in seen:
+                            seen.add(text)
+                            all_unique_texts.append(text)
+
+                    self.content = "\n".join(all_unique_texts)
+            except Exception as e:
+                print("Error extracting extra content from external-article-content__Wrapper-sc-30e70ae7-0:", e)
+
+
+
+
+
             # Extract published date
             # Find all divs where class starts with 'article-info__Date'
             date_divs = soup.select('div[class^="article-info__Date"]')
@@ -3435,6 +3467,18 @@ class MirrorMedia(News):
                 if author_ul:
                     self.authors.append(author_ul.get_text().strip())
 
+            # Additional extraction from <p style="text-align: justify;">
+            try:
+                author_p = soup.find("p", style=lambda value: value and "text-align: justify" in value)
+                print("Found author_p:", author_p)
+
+                if author_p:
+                    author_text = author_p.get_text(strip=True)
+                    print("Extracted author from <p style='text-align: justify;'>:", author_text)
+                    self.authors.append(author_text)
+            except Exception as e:
+                print("Error extracting author from <p style='text-align: justify;'>:", e)
+
             # Add journalist extraction separately
             journalist_p_tags = soup.find_all("p", style="text-align: justify;")
             for p_tag in journalist_p_tags:
@@ -3470,6 +3514,25 @@ class MirrorMedia(News):
                         image=content.find("img")
                         if image:
                             self.images.append(image["src"])
+
+
+            # Additional fallback: extract images from <p style="text-align: center;"> with <img> inside
+            try:
+                centered_paragraphs = soup.find_all("p")
+                for p in centered_paragraphs:
+                    style = p.get("style", "")
+                    if "text-align: center" in style:
+                        image_tag = p.find("img")
+                        if image_tag and image_tag.get("src"):
+                            image_url = image_tag["src"]
+                            if image_url not in self.images:
+                                print("Found fallback image in centered <p>:", image_url)
+                                self.images.append(image_url)
+            except Exception as e:
+                print("Error in fallback centered image extraction:", e)
+
+
+
             print("content_div:",content_div)
             print("self.title:",self.title)
             print("self.content:",self.content)
