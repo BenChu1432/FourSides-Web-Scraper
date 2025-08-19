@@ -38,7 +38,7 @@ async def process_message(message_body):
     print("task_type:",task_type)
 
     if task_type == "scrape_specific_news_outlet" and media_name:
-        await news_controller.scrape_translate_and_store_news_for_one_news_outlet(media_name)
+        await news_controller.scrape_classify_and_store_news_for_one_news_outlet(media_name)
         print(f"✅ Scraped: {media_name}")
     elif task_type == "scrape-all-taiwanese-news":
         await news_controller.scrape_and_store_all_taiwanese_news()

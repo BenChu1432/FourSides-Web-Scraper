@@ -105,6 +105,11 @@ async def store_all_articles(articles: List[NewsEntity], db):
             "published_at": article.published_at,
             "authors": article.authors,
             "images": article.images,
+            "refined_title": article.refined_title,
+            "journalistic_merits": article.journalistic_merits,
+            "journalistic_demerits": article.journalistic_demerits,
+            "reporting_intention":article.reporting_intention,
+            "reporting_style": article.reporting_style
         }
         values_to_insert.append(article_dict)
         news_to_insert.append(article)

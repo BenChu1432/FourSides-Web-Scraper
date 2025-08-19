@@ -1,6 +1,6 @@
 import os
 import re
-from typing import Dict, Optional
+from typing import Dict, Literal, Optional, TypedDict
 from urllib.parse import urlparse
 import concurrent
 import requests
@@ -31,6 +31,11 @@ from webdriver_manager.chrome import ChromeDriverManager
 # Constants
 WAITING_TIME_FOR_JS_TO_FETCH_DATA=2
 
+Degree = Literal["low", "moderate", "high"]
+
+class AssessmentItem(TypedDict):
+    description: str
+    degree: Degree
 
 class News(ABC):
     media_name: Optional[str]
@@ -41,6 +46,11 @@ class News(ABC):
     authors: List[str]
     images: List[str]
     origin: Optional[str]
+    refined_title: Optional[str]
+    reporting_style: List[str]
+    reporting_intention: List[str]
+    journalistic_demerits: Dict[str, AssessmentItem]
+    journalistic_merits: Dict[str, AssessmentItem]
     max_workers: int
     max_pages: int
 

@@ -1,5 +1,6 @@
 import uuid
 from sqlalchemy import UUID, Column, Integer, String, Text, ARRAY, ForeignKey, Enum as SAEnum
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from app.db.database import Base
 from app.enums import enums
@@ -40,5 +41,16 @@ class NewsEntity(Base):
 
     clusterId = Column(Integer, ForeignKey("cluster.id"), nullable=True)
     cluster = relationship("ClusterEntity", back_populates="news")
+
+    # Tagging JSON maps
+    journalistic_merits = Column(JSONB, nullable=True)
+    journalistic_demerits = Column(JSONB, nullable=True)
+
+    # Style/Intention arrays
+    reporting_style = Column(ARRAY(String), nullable=False, server_default="{}")
+    reporting_intention = Column(ARRAY(String), nullable=False, server_default="{}")
+
+    refined_title = Column(Text, nullable=True)
+
     # Many-to-many through NewsAuthor
     authorships = relationship("NewsAuthorEntity", back_populates="news")

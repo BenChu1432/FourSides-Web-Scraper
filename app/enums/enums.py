@@ -60,6 +60,7 @@ class MediaNameEnum(str, Enum):
     FTV = "FTV"
 
 class ErrorTypeEnum(str, Enum):
+    LLM_ERROR="LLM_ERROR"
     UNMAPPED_MEDIA = "UNMAPPED_MEDIA"
     PARSING_FAILURE = "PARSING_FAILURE"
     PARSING_ERROR = "PARSING_ERROR"

@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from app.aws_lambda.send_logs_to_db import send_log_to_lambda
 from app.db.database import AsyncSessionLocal
 from app.enums.enums import ErrorTypeEnum
+from app.llm.gpt_4o_mini_classification import classifiy_article
 from app.llm.llama_8B_translation import translate_article
 from app.service import scrape_service
 from scrapers.news import News
@@ -21,7 +22,7 @@ async def filter_existing_articles(urls:List[str],db:AsyncSession):
     return await news_repository.filter_existing_articles(urls,db)
 
 
-async def scrape_translate_and_store_news_for_one_news_outlet(parser_class: Type[News]):
+async def scrape_classify_and_store_news_for_one_news_outlet(parser_class: Type[News]):
     # Get machine ID
     try:
         machine_id = await get_instance_id()
@@ -51,7 +52,15 @@ async def scrape_translate_and_store_news_for_one_news_outlet(parser_class: Type
     print("articles:",articles)
     print("len(articles)",len(articles))
     # Translate
-    await asyncio.gather(*[translate_article(article) for article in articles])
+    # await asyncio.gather(*[translate_article(article) for article in articles])
+    # Tagging
+    try:
+        async with AsyncSessionLocal() as db:
+            await asyncio.gather(*[classifiy_article(article) for article in articles])
+    except Exception as e:
+        print("❌ Failed to store articles:", e)
+        await send_log_to_lambda(jobId,failure_type=ErrorTypeEnum.LLM_ERROR,detail=f"❌ Failed to use the LLM to analyze articles:, {e}",media_name=media_name,urls=[urls])
+    # 
     # Store
      # ******************************************DB Connection******************************************
     try:
@@ -92,7 +101,7 @@ async def scrape_and_store_all_taiwanese_news():
     for parser_class in constant.TAIWAN_MEDIA:
         print("parser_class:",parser_class)
         print(f"🔍 Scraping from: {parser_class.__name__}")
-        await scrape_translate_and_store_news_for_one_news_outlet(parser_class)
+        await scrape_classify_and_store_news_for_one_news_outlet(parser_class)
 
 
 async def get_filtered_news(filter:NewsFilter, db):
@@ -121,7 +130,7 @@ async def retry_scraping_existent_news_by_media(media_name,parser_class):
     print("articles:",articles)
     print("len(articles)",len(articles))
     # Translate
-    await asyncio.gather(*[translate_article(article) for article in articles])
+    # await asyncio.gather(*[translate_article(article) for article in articles])
     # Update
     async with AsyncSessionLocal() as db:
         await news_repository.update_all_articles(articles, db)
