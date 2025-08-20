@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Optional
 from zoneinfo import ZoneInfo
 import dateparser
 
@@ -7,10 +8,10 @@ def _parse_to_utc(
     date_str: str,
     *,
     languages=None,
-    date_order: str | None = None,
-    default_tz: str = 'UTC',
-    relative_base: datetime | None = None,
-    prefer_dates_from: str | None = None,
+    date_order: Optional[str] = None,
+    default_tz: Optional[str] = 'UTC',
+    relative_base: Optional[datetime] | None = None,
+    prefer_dates_from: Optional[str] = None,
 ):
     """
     Helper to parse any date string as a timezone-aware datetime and
