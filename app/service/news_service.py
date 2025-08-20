@@ -79,7 +79,7 @@ async def scrape_classify_and_store_news_for_one_news_outlet(parser_class: Type[
     except Exception as e:
         print("❌ Cannot log finished scrape job:", e)
         urls=[article.url for article in articles]
-        await send_log_to_lambda(jobId,failure_type=ErrorTypeEnum.DATABASE_TIMEOUT,detail=f"❌ Failed to store articles:, {e}",media_name=media_name,urls=[urls])
+        await send_log_to_lambda(jobId,failure_type=ErrorTypeEnum.DATABASE_TIMEOUT,detail=f"❌ Failed to log the finished scrape job:, {e}",media_name=media_name,urls=[urls])
         return []  # or handle however makes sense for your use case
     return []
     
