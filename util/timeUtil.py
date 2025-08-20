@@ -10,7 +10,7 @@ def _parse_to_utc(
     languages=None,
     date_order: Optional[str] = None,
     default_tz: Optional[str] = 'UTC',
-    relative_base: Optional[datetime] | None = None,
+    relative_base: Optional[datetime] = None,
     prefer_dates_from: Optional[str] = None,
 ):
     """
