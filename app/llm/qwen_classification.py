@@ -2,7 +2,6 @@ from typing import Dict, List, Optional
 from together import Together
 import json
 import os
-from openai import AzureOpenAI
 from dotenv import load_dotenv
 
 from app.modals.newsEntity import NewsEntity
