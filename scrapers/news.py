@@ -1,8 +1,9 @@
 import os
 import re
 from typing import Dict, Literal, Optional, TypedDict
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 import concurrent
+import feedparser
 import requests
 from bs4 import BeautifulSoup
 from abc import ABC, abstractmethod
@@ -5070,3 +5071,324 @@ class YahooNews(News):
             self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
         else:
             self.content = "No content found"
+
+class MyGoPenNews(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.media_name = "MyGoPen"
+        self.feed_url = "https://www.mygopen.com/feeds/posts/default?alt=rss"
+        self.max_articles = 10
+
+    def _get_article_urls(self):
+        print(f"🌐 解析 RSS：{self.feed_url}")
+        feed = feedparser.parse(self.feed_url)
+
+        if feed.bozo:
+            print("❌ RSS 有錯誤：", feed.bozo_exception)
+            return []
+
+        print(f"✅ 共抓到 {len(feed.entries)} 篇文章")
+        urls = []
+
+        for entry in feed.entries[:self.max_articles]:
+            if "link" in entry:
+                urls.append(entry.link)
+
+        print(f"🎯 總共擷取 {len(urls)} 筆文章連結")
+        return urls
+
+    def parse_article(self, soup):
+        # 標題
+        self.title = soup.title.string.strip() if soup.title else "Missing Title"
+
+        # 摘要
+        meta_desc = soup.find("meta", attrs={"name": "description"})
+        self.summary = meta_desc["content"].strip() if meta_desc and meta_desc.has_attr("content") else "Missing Summary"
+
+        # 發布日期
+        pub_date_tag = soup.find("abbr", class_="published")
+        self.published_at = pub_date_tag.get("title") if pub_date_tag else None
+
+        # 查核記者（MyGoPen 通常沒有）
+        self.authors = []
+
+        # 內容
+        content_div = soup.find("div", class_="post-body")
+        if content_div:
+            self.content = "\n".join(p.get_text(strip=True) for p in content_div.find_all("p"))
+        else:
+            self.content = "Missing Content"
+
+        # 圖片
+        self.images = []
+        for img in soup.find_all("img"):
+            src = img.get("src")
+            if src and src.endswith(".jpg"):
+                self.images.append(src)
+
+class TFCNews:
+    def __init__(self, url=None):
+        self.url = url
+        self.media_name = "TFC"
+        self.max_pages = 2
+        self.title = None
+        self.summary = None
+        self.published_at = None
+        self.authors = []
+        self.content = None
+        self.images = []
+        self.origin = "台灣事實查核中心"
+
+    def _get_article_urls(self):
+        driver = self.get_chrome_driver()
+        article_urls = []
+
+        for page in range(1, self.max_pages + 1):
+            url = f"https://tfc-taiwan.org.tw/fact-check-reports-all/?pg={page}"
+            print(f"🔗 開啟第 {page} 頁: {url}")
+            driver.get(url)
+
+            try:
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, "li.kb-query-item"))
+                )
+                articles = driver.find_elements(By.CSS_SELECTOR, "li.kb-query-item")
+                print(f"✅ 找到 {len(articles)} 篇文章")
+
+                for article in articles:
+                    try:
+                        a_tag = article.find_element(By.TAG_NAME, "a")
+                        href = a_tag.get_attribute("href")
+                        if href and href not in article_urls:
+                            article_urls.append(href)
+                    except Exception as e:
+                        print("⚠️ 找 <a> 錯誤：", e)
+
+            except Exception as e:
+                print(f"❌ 頁面載入失敗: {e}")
+
+            time.sleep(1.2)
+
+        driver.quit()
+        print(f"\n📦 共蒐集 {len(article_urls)} 筆文章網址")
+        return article_urls
+
+    def parse_article(self):
+        """
+        Crawl all article URLs, parse each article, print a summary,
+        and return a list of parsed article dictionaries.
+
+        Side effects:
+        - Uses Selenium driver
+        - Prints summaries to stdout
+        """
+        results = []
+        urls = self._get_article_urls()
+        driver = self.get_chrome_driver()
+
+        print("\n📖 每篇文章摘要：")
+        for url in urls:
+            try:
+                driver.get(url)
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "article"))
+                )
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                self.url = url  # for resolving image URLs
+
+                # ===== 解析開始 =====
+
+                # 標題（先找 <h1>，找不到再 fallback 到 <strong>）
+                title_tag = soup.find("h1")
+                if title_tag and title_tag.get_text(strip=True):
+                    title = title_tag.get_text(strip=True)
+                else:
+                    title = "Missing Title"
+                    strong_tags = soup.find_all("strong")
+                    for tag in strong_tags:
+                        text = tag.get_text(strip=True)
+                        if text and len(text) > 10:
+                            self.title = text
+                            break
+
+                # 查核記者
+                authors = []
+                text_all = soup.get_text()
+                match = re.search(r"查核記者[:：]?\s*([^\s，、\n]+)", text_all)
+                if match:
+                    self.authors.append(match.group(1))
+
+                # 正文內容
+                content_div = soup.find("div", class_=lambda c: c and ("entry-content" in c or "wp-block" in c))
+                if content_div:
+                    paragraphs = content_div.find_all(["p", "li"])
+                    self.content = "\n".join(p.get_text(strip=True) for p in paragraphs if p.get_text(strip=True))
+
+                # 圖片擷取（.jpg）
+                for img in soup.find_all("img"):
+                    image_url = img.get("src")
+                    if not image_url and img.get("srcset"):
+                        candidates = [s.strip().split(" ")[0] for s in img["srcset"].split(",")]
+                        if candidates:
+                            image_url = candidates[-1]
+                    if image_url and ".jpg" in image_url:
+                        full_url = urljoin(self.url, image_url)
+                        self.images.append(full_url)
+
+            except Exception as e:
+                print(f"❌ 讀取失敗：{url}，錯誤：{e}")
+
+        driver.quit()
+    
+
+class FactcheckLab(News):
+    def __init__(self, url=None):
+        super().__init__(url)  # Call parent constructor
+        self.media_name = "Factcheck Lab 事實查核實驗室"
+        self.max_pages = 1
+        self.max_workers = 5
+
+    def _get_article_urls(self):
+        max_pages = self.max_pages
+
+        def fetch_page_articles(page: int):
+            # Factcheck Lab 首頁會載入最新文章，無明確分頁參數
+            # 若未來有分頁，可在此擴充
+            page_urls = []
+            base_url = "https://www.factchecklab.org"
+            print(f"Loading page: {base_url}")
+
+            # 先嘗試使用 requests（站點為靜態可抓）
+            try:
+                res = requests.get(base_url, timeout=15)
+                res.raise_for_status()
+                soup = BeautifulSoup(res.text, "html.parser")
+                articles = soup.select("a.post-card-image-link")
+
+                for a_tag in articles:
+                    href = a_tag.get("href")
+                    if href:
+                        full_url = urljoin(base_url, href)
+                        page_urls.append(full_url)
+
+                print(f"Found {len(page_urls)} articles on page {page}")
+                return page_urls
+
+            except Exception as e:
+                print(f"Requests failed, fallback to Selenium for page {page}: {e}")
+
+                # 若需要 JS 執行再回退到 Selenium
+                driver = self.get_chrome_driver()
+                try:
+                    driver.get(base_url)
+                    time.sleep(2)  # wait for basic render
+
+                    soup = BeautifulSoup(driver.page_source, "html.parser")
+                    articles = soup.select("a.post-card-image-link")
+
+                    for a_tag in articles:
+                        href = a_tag.get("href")
+                        if href:
+                            full_url = urljoin(base_url, href)
+                            page_urls.append(full_url)
+
+                    # 若有需要滾動載入，可在此加入滾動邏輯（目前站點不需要）
+                    print(f"Found {len(page_urls)} articles on page {page}")
+                    return page_urls
+                finally:
+                    driver.quit()
+
+        all_urls = []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = [executor.submit(fetch_page_articles, page) for page in range(1, max_pages + 1)]
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    urls = future.result()
+                    all_urls.extend(urls)
+                except Exception as e:
+                    print(f"Error fetching page: {e}")
+
+        # 去重
+        all_urls = list(dict.fromkeys(all_urls))
+        return all_urls
+
+    def parse_article(self, soup: BeautifulSoup):
+        base_url = "https://www.factchecklab.org"
+        # Title
+        h1 = soup.find("h1")
+        self.title = h1.get_text(strip=True) if h1 else "No title found"
+
+        # Publish date
+        # <time class="byline-meta-date" datetime="...">
+        time_tag = soup.find("time", class_="byline-meta-date")
+        if time_tag and time_tag.has_attr("datetime"):
+            date_str = time_tag["datetime"]
+            # 若父類別提供 ISO8601 轉 timestamp 工具
+            try:
+                self.published_at = standardDateToTimestamp(date_str)
+            except Exception:
+                # 若工具不可用，可退回原字串
+                self.published_at = date_str
+
+        # Author(s) — 網站未必固定顯示作者，若有可擴充選擇器
+        # 嘗試幾種常見位置
+        author_candidates = []
+        # 例：class 可能為 byline 或作者連結
+        for sel in ["a.post-card-author", ".byline-author a", ".byline-author", "a.author", ".author"]:
+            for tag in soup.select(sel):
+                txt = tag.get_text(strip=True)
+                if txt:
+                    author_candidates.append(txt)
+        # 去重後加入
+        for author in list(dict.fromkeys(author_candidates)):
+            self.authors.append(author)
+
+        # First image（封面或首圖）
+        first_img_url = None
+        # 先找文章內第一個 <figure> 下的 <img>
+        first_figure = soup.find("figure")
+        if first_figure:
+            img_tag = first_figure.find("img")
+            if img_tag and img_tag.has_attr("src"):
+                first_img_url = urljoin(self.url or base_url, img_tag["src"])
+        # 若未找到，嘗試 og:image
+        if not first_img_url:
+            og_img = soup.find("meta", property="og:image")
+            if og_img and og_img.get("content"):
+                first_img_url = urljoin(self.url or base_url, og_img["content"])
+        if first_img_url:
+            self.images.append(first_img_url)
+
+        # Content
+        # 文章本體大多在 <article> 中
+        content_div = soup.find("article")
+        if content_div:
+            paragraphs = content_div.find_all("p")
+            content_texts = []
+            for p in paragraphs:
+                txt = p.get_text(strip=True)
+                if txt:
+                    content_texts.append(txt)
+            self.content = "\n".join(content_texts)
+
+        # News source / origin
+        # Factcheck Lab 多為自家出品，若需要對外媒做 mapping，可在此擴充
+        # 例：若文末有「來源」段落，可嘗試解析：
+        source_text = None
+        for sel in ["p", "li"]:
+            for tag in soup.select(sel):
+                txt = tag.get_text(strip=True)
+                if txt and (txt.startswith("來源：") or txt.startswith("資料來源：")):
+                    source_text = txt.replace("來源：", "").replace("資料來源：", "").strip()
+                    break
+            if source_text:
+                break
+
+        if source_text:
+            try:
+                self.origin = chineseMediaTranslationUtil.map_chinese_media_to_enum(source_text)
+            except ValueError as e:
+                # 若你的系統需要嚴格映射，則拋出；否則可忽略或記錄
+                # raise UnmappedMediaNameError(source_text) from e
+                pass

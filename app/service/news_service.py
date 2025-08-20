@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from app.aws_lambda.send_logs_to_db import send_log_to_lambda
 from app.db.database import AsyncSessionLocal
 from app.enums.enums import ErrorTypeEnum
-from app.llm.gpt_4o_mini_classification import classifiy_article
+from app.llm.qwen_classification import classify_article
 from app.llm.llama_8B_translation import translate_article
 from app.service import scrape_service
 from scrapers.news import News
@@ -56,7 +56,7 @@ async def scrape_classify_and_store_news_for_one_news_outlet(parser_class: Type[
     # Tagging
     try:
         async with AsyncSessionLocal() as db:
-            await asyncio.gather(*[classifiy_article(article) for article in articles])
+            await asyncio.gather(*[classify_article(article) for article in articles])
     except Exception as e:
         print("❌ Failed to store articles:", e)
         await send_log_to_lambda(jobId,failure_type=ErrorTypeEnum.LLM_ERROR,detail=f"❌ Failed to use the LLM to analyze articles:, {e}",media_name=media_name,urls=[urls])
