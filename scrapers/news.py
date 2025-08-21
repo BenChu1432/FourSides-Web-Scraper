@@ -104,9 +104,6 @@ class News(ABC):
         urls = []
         try:
             urls = self._get_article_urls()
-            # Limit the number of urls to 40 to avoid overwhelming scrape work
-            urls = urls[:40]
-            print("len(urls):",len(urls))
             if not urls:
                 errors.append({
                     "failure_type": ErrorTypeEnum.ZERO_URLS_FETCHED,
