@@ -45,29 +45,29 @@ ALLOWED_TAGS = {
     "journalistic_demerits":[
         "**decontextualisation**（脫離語境/缺乏細緻脈絡）",
         "**clickbait**（標題黨）",
-        "**fear_mongering**（惡意引起社會恐慌）",
-        "**cherry_picking**（選擇性舉例）",
-        "**loaded_language**（情緒性用語）",
+        "**fear-mongering**（惡意引起社會恐慌）",
+        "**cherry-picking**（選擇性舉例）",
+        "**loaded language**（情緒性用語）",
         "**conflation**（不當混淆）",
-        "**lack_of_balance**（缺乏平衡觀點）",
-        "**overemphasis_on_profanity_and_insults**（過度放大粗俗語言或人身攻擊）",
-        "**social_media_amplification_trap**（社群放大陷阱）",
+        "**lack of balance**（缺乏平衡觀點）",
+        "**overemphasis on profanity and insults**（過度放大粗俗語言或人身攻擊）",
+        "**social media amplification trap**（社群放大陷阱）",
         "**nationalistic framing**（民族主義框架）",
-        "**corporate_glorification**（企業美化）",
-        "**overemphasis_on_glory**（過度強調成就）",
-        "**propagandistic_tone**（大外宣語調）",
-        "**overuse_of_statistics_without_verification**（數據濫用或未驗證）",
-        "**no_critical_inquiry_or_accountability**（缺乏批判與責任追究）",
-        "**strategic_omission**（策略性忽略）",
-        "**anonymous_authority**（不具名權威）",
-        "**minor_incident_magnification**（小事件誇大）",
-        "**victimhood_framing**（受害者框架）",
-        "**heroic_framing**（英雄敘事）",
-        "**binary_framing**（非黑即白敘事）",
-        "**moral_judgment_framing**（道德判斷包裝）",
-        "**cultural_essentialism**（文化本質論）",
-        "**traditional_values_shield**（主張傳統價值作擋箭牌）",
-        "**pre-criminal_framing**（預設有罪）"
+        "**corporate glorification**（企業美化）",
+        "**overemphasis on glory**（過度強調成就）",
+        "**propagandistic tone**（大外宣語調）",
+        "**overuse of statistics without verification**（數據濫用或未驗證）",
+        "**no critical inquiry or accountability**（缺乏批判與責任追究）",
+        "**strategic omission**（策略性忽略）",
+        "**anonymous authority**（不具名權威）",
+        "**minor incident magnification**（小事件誇大）",
+        "**victimhood framing**（受害者框架）",
+        "**heroic framing**（英雄敘事）",
+        "**binary framing**（非黑即白敘事）",
+        "**moral judgment framing**（道德判斷包裝）",
+        "**cultural essentialism**（文化本質論）",
+        "**traditional values shield**（主張傳統價值作擋箭牌）",
+        "**pre-criminal framing**（預設有罪）"
     ],
     "reporting_style": [
         "he_said_she_said_reporting", 
@@ -144,12 +144,6 @@ system_prompt = f"""
 
 print("system_prompt:",system_prompt)
 
-class FieldError(ValueError):
-    pass
-
-def expect(condition: bool, path: str, message: str = ""):
-    if not condition:
-        raise FieldError(f"Field '{path}' invalid. {message}".strip())
 
 def safe_parse_json(content: str):
     # 嘗試從 markdown 格式中提取純 JSON 區塊
@@ -209,118 +203,121 @@ async def classify_article(article: NewsEntity):
         print(content)
         return None
     # refined_title
-    try:
-        # refined_title
-        path = "refined_title"
-        expect(path in data, path, "Missing top-level key")
-        rt = data.get(path)
-        # allow null or string
-        expect(rt is None or isinstance(rt, str), path, f"Expected null or string, got {type(rt).__name__}")
-        refined_title = rt.strip() if isinstance(rt, str) and rt.strip() else None
+    rt = data.get("refined_title", None)
+    print("rt:",rt)
+    if isinstance(rt, str) and rt.strip():
+        refined_title = rt.strip()
+        print("✅ Successfully parsed the refined_title")
+    else:
+        refined_title = None
 
-        # reporting_style
-        path = "reporting_style"
-        expect(path in data, path, "Missing top-level key")
-        rs = data.get(path)
-        expect(isinstance(rs, list), path, f"Expected list, got {type(rs).__name__}")
-        expect(all(isinstance(t, str) for t in rs), path, "All items must be strings")
-        reporting_style_out = [t for t in rs if t in ALLOWED_TAGS["reporting_style"]]
+    # reporting_style (only keep allowed tags and ensure list[str])
+    rs = data.get("reporting_style", [])
+    print("rs:",rs)
+    if isinstance(rs, list):
+        reporting_style_out = [
+            t for t in rs
+            if isinstance(t, str) and t in ALLOWED_TAGS["reporting_style"]
+        ]
+        print("✅ Successfully parsed the reporting_style")
 
-        # reporting_intention
-        path = "reporting_intention"
-        expect(path in data, path, "Missing top-level key")
-        ri = data.get(path)
-        expect(isinstance(ri, list), path, f"Expected list, got {type(ri).__name__}")
-        reporting_intention_out = [str(x).strip() for x in ri if isinstance(x, (str, int, float))][:3]
+    # reporting_intention (ensure list[str], keep short)
+    ri = data.get("reporting_intention", [])
+    print("ri:",ri)
+    if isinstance(ri, list):
+        reporting_intention_out = [str(x).strip() for x in ri if isinstance(x, (str, int, float))]
+        # Optionally limit to 3
+        reporting_intention_out = reporting_intention_out[:3]
+        print("✅ Successfully parsed the reporting_intention")
 
-        # journalistic_demerits
-        path = "journalistic_demerits"
-        jd = data.get(path, {})
-        expect(isinstance(jd, dict), path, f"Expected object, got {type(jd).__name__}")
-
-        clean_allowed_demerits = set()
-        for t in ALLOWED_TAGS["journalistic_demerits"]:
-            clean = t.split("**")[1].strip() if t.startswith("**") and "**" in t[2:] else t
-            clean = clean.replace("（", " ").replace("）", " ").strip().split()[0]
-            clean_allowed_demerits.add(clean)
-
-        journalistic_demerits_out = {}
+    # journalistic_demerits: keep only tags that appear and have valid structure
+    jd = data.get("journalistic_demerits", {})
+    print("jd:",jd)
+    if isinstance(jd, dict):
         for key, item in jd.items():
-            key_path = f"{path}.{key}"
-            expect(isinstance(item, dict), key_path, "Expected object for tag")
+            # Map keys that may come with **bold** or localized text to canonical key
+            # We accept the canonical english snake_case keys from ALLOWED_TAGS
+            canonical_keys = [t.split("**")[1] if t.startswith("**") else t for t in ALLOWED_TAGS["journalistic_demerits"]]
+            # Build a map of clean_key -> allowed
+            clean_allowed = set()
+            for t in ALLOWED_TAGS["journalistic_demerits"]:
+                # t is like "**decontextualisation**（…）"
+                # extract between ** if present
+                if t.startswith("**") and "**" in t[2:]:
+                    clean = t.split("**")[1].strip()
+                else:
+                    clean = t
+                # ensure final clean is like decontextualisation
+                clean = clean.replace("（", " ").replace("）", " ").strip()
+                # take first token till space or parenthesis
+                clean = clean.split()[0]
+                clean_allowed.add(clean)
+
             clean_key = key.strip("* ").split("**")[-1] if "**" in key else key.strip()
             clean_key = clean_key.replace("（", " ").replace("）", " ").strip().split()[0]
-            if clean_key not in clean_allowed_demerits:
-                # skip unknown tags silently or raise to be strict:
-                # raise FieldError(f"Unknown demerit tag at '{key_path}': {clean_key}")
-                continue
-            desc = item.get("description", "")
-            deg = (item.get("degree") or "").lower()
-            expect(isinstance(desc, str), f"{key_path}.description", "Expected string")
-            if desc.strip():
-                if deg == "not applicable":
-                    continue
-                allowed_deg = {"low", "moderate", "high"}
-                if deg and deg not in allowed_deg:
-                    raise FieldError(f"Invalid degree '{deg}' at '{key_path}.degree' (allowed: {allowed_deg})")
-                journalistic_demerits_out[clean_key] = {
-                    "description": desc.strip(),
-                    "degree": deg if deg in allowed_deg else "low",
-                }
 
-        # journalistic_merits
-        path = "journalistic_merits"
-        jm = data.get(path, {})
-        expect(isinstance(jm, dict), path, f"Expected object, got {type(jm).__name__}")
+            if clean_key in clean_allowed and isinstance(item, dict):
+                desc = item.get("description", "")
+                deg = item.get("degree", "").lower() if isinstance(item.get("degree"), str) else ""
+                # Skip "not applicable" or empty descriptions
+                if isinstance(desc, str) and desc.strip():
+                    if deg == "not applicable":
+                        continue
+                    journalistic_demerits_out[clean_key] = {
+                        "description": desc.strip(),
+                        "degree": _normalize_degree(deg)
+                    }
+        print("✅ Successfully parsed the journalistic_demerits")
 
-        clean_allowed_merits = set()
+    # journalistic_merits: same normalization
+    jm = data.get("journalistic_merits", {})
+    print("jm:",jm)
+    if isinstance(jm, dict):
+        clean_allowed = set()
         for t in ALLOWED_TAGS["journalistic_merits"]:
-            clean = t.split("**")[1].strip() if t.startswith("**") and "**" in t[2:] else t
-            clean = clean.replace("（", " ").replace("）", " ").strip().split()[0]
-            clean_allowed_merits.add(clean)
+            # similar extraction
+            if t.startswith("**") and "**" in t[2:]:
+                clean = t.split("**")[1].strip()
+            else:
+                clean = t
+            clean = clean.replace("（", " ").replace("）", " ").strip()
+            clean = clean.split()[0]
+            clean_allowed.add(clean)
 
-        journalistic_merits_out = {}
         for key, item in jm.items():
-            key_path = f"{path}.{key}"
-            expect(isinstance(item, dict), key_path, "Expected object for tag")
             clean_key = key.strip("* ").split("**")[-1] if "**" in key else key.strip()
             clean_key = clean_key.replace("（", " ").replace("）", " ").strip().split()[0]
-            if clean_key not in clean_allowed_merits:
-                continue
-            desc = item.get("description", "")
-            deg = (item.get("degree") or "").lower()
-            expect(isinstance(desc, str), f"{key_path}.description", "Expected string")
-            if desc.strip():
-                if deg == "not applicable":
-                    continue
-                allowed_deg = {"low", "moderate", "high"}
-                if deg and deg not in allowed_deg:
-                    raise FieldError(f"Invalid degree '{deg}' at '{key_path}.degree' (allowed: {allowed_deg})")
-                journalistic_merits_out[clean_key] = {
-                    "description": desc.strip(),
-                    "degree": deg if deg in allowed_deg else "low",
-                }
+            if clean_key in clean_allowed and isinstance(item, dict):
+                desc = item.get("description", "")
+                deg = item.get("degree", "").lower() if isinstance(item.get("degree"), str) else ""
+                if isinstance(desc, str) and desc.strip():
+                    if deg == "not applicable":
+                        continue
+                    journalistic_merits_out[clean_key] = {
+                        "description": desc.strip(),
+                        "degree": _normalize_degree(deg)
+                    }
+        print("✅ Successfully parsed the journalistic_merits")
 
-        # attach
+    # Attach to article (NewsEntity should have these attributes)
+    # If your NewsEntity uses different field names, adjust here
+    try:
         article.refined_title = refined_title
         article.reporting_style = reporting_style_out
         article.reporting_intention = reporting_intention_out
         article.journalistic_demerits = journalistic_demerits_out
         article.journalistic_merits = journalistic_merits_out
-        return {
-            "refined_title": refined_title,
-            "reporting_style": reporting_style_out,
-            "reporting_intention": reporting_intention_out,
-            "journalistic_demerits": journalistic_demerits_out,
-            "journalistic_merits": journalistic_merits_out
-        }
-
+        print("✅ Successfully attached data to the article")
     except Exception as e:
-        # add article context to the error
-        article_id = getattr(article, "id", None)
-        article_url = getattr(article, "url", None)
-        meta = f"(article_id={article_id}, url={article_url})"
-        raise FieldError(f"{meta} {e}") from e
+        print("⚠️ Failed to assign fields to article:", e)
+    print("🥳 Successfully parsed everything!")
+    return {
+        "refined_title": refined_title,
+        "reporting_style": reporting_style_out,
+        "reporting_intention": reporting_intention_out,
+        "journalistic_demerits": journalistic_demerits_out,
+        "journalistic_merits": journalistic_merits_out
+    }
 
 async def classify_articles(articles: List[NewsEntity]):
     tasks = [classify_article(article) for article in articles]

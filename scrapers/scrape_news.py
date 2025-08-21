@@ -24,7 +24,7 @@ async def scrape_unique_news(parser_class: type[News],jobId,db_factory):
         await send_log_to_lambda(jobId,failure_type=ErrorTypeEnum.DATABASE_TIMEOUT,detail=f'"❌ Failed to filter existing articles:", {e}',media_name=scraper.media_name,urls=[scraper.url])
         return []
     # ******************************************DB Connection******************************************
-    
+    print("💫 unique_urls:",unique_urls)
 
     # Scrape content from urls
     loop = asyncio.get_running_loop()

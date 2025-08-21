@@ -89,6 +89,13 @@ class News(ABC):
 
         driver = webdriver.Chrome(options=options)
         return driver
+    
+    # def get_chrom_driver_with_error(self):
+    #     try:
+    #         self.get_chrome_driver()
+    #     except Exception as e:
+            
+
 
     @abstractmethod
     def _get_article_urls(self):
@@ -1043,7 +1050,7 @@ class VOC(News):
         
     def _get_article_urls(self):
         latest_news_url = "https://www.voachinese.com/z/1739"
-        base_url="https://www.voachinese.com/"
+        base_url="https://www.voachinese.com"
         print(f"Loading page: {latest_news_url}")
 
         all_urls=[]
