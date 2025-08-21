@@ -45,27 +45,52 @@ async def scrape_classify_and_store_news_for_one_news_outlet(parser_class: Type[
     # Scrape
     try:
         articles:List[NewsEntity] = await scrape_unique_news(parser_class,jobId,AsyncSessionLocal)
+        print(f"✅ Limited to {len(articles)} URLs")
     except Exception as e:
         print("error:",e)
         # Raise HTTPException to notify the client
         return []
-    print("len(articles)",len(articles))
-    print("articles:",articles)
+    print(f"✅ {len(articles)} articles collected.")
+    for i, article in enumerate(articles):
+        print(f"[{i}] URL: {getattr(article, 'url', 'no-url')}")
     # Translate
     # await asyncio.gather(*[translate_article(article) for article in articles])
     # Tagging
     try:
-        async with AsyncSessionLocal() as db:
-            await asyncio.gather(*[classify_article(article) for article in articles])
+        print("🧠 Starting classification...")
+        results = await asyncio.gather(
+            *(classify_article(article) for article in articles),
+            return_exceptions=True
+        )
+
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                print(f"❌ Classification failed for article[{i}]: {result}")
+                await send_log_to_lambda(
+                    jobId,
+                    failure_type=ErrorTypeEnum.LLM_ERROR,
+                    detail=f"❌ Failed to use the LLM to analyze articles: {result}",
+                    media_name=media_name,
+                    urls=[article.url for article in articles]
+                )
     except Exception as e:
-        print("❌ Failed to store articles:", e)
-        await send_log_to_lambda(jobId,failure_type=ErrorTypeEnum.LLM_ERROR,detail=f"❌ Failed to use the LLM to analyze articles:, {e}",media_name=media_name,urls=[urls])
-    # 
+        print("❌ Failed to classify articles:", e)
+        await send_log_to_lambda(
+            jobId,
+            failure_type=ErrorTypeEnum.LLM_ERROR,
+            detail=f"❌ Failed to use the LLM to analyze articles: {e}",
+            media_name=media_name,
+            urls=[article.url for article in articles]
+        )
+
+    print("🧠 Classification complete.")
     # Store
      # ******************************************DB Connection******************************************
+    print("🥳 Starting to store...")
     try:
         async with AsyncSessionLocal() as db:
             articles=await news_repository.store_all_articles(articles, db)
+        print("🥳 Finished storing...")
     except Exception as e:
         print("❌ Failed to store articles:", e)
         urls=[article.url for article in articles]

@@ -104,6 +104,9 @@ class News(ABC):
         urls = []
         try:
             urls = self._get_article_urls()
+            # Limit the number of urls to 40 to avoid overwhelming scrape work
+            urls = urls[:40]
+            print("len(urls):",len(urls))
             if not urls:
                 errors.append({
                     "failure_type": ErrorTypeEnum.ZERO_URLS_FETCHED,
@@ -3781,7 +3784,6 @@ class TVBS(News):
         self.max_pages=1
 
     def _get_article_urls(self):
-        max_pages=self.max_pages
         latest_news_url = "https://news.tvbs.com.tw/realtime"
         base_url="https://news.tvbs.com.tw"
         print(f"Loading page: {latest_news_url}")

@@ -1,3 +1,4 @@
+import asyncio
 from typing import Dict, List, Optional
 from together import Together
 import json
@@ -115,23 +116,23 @@ system_prompt = f"""
 ### ⚠️ 請注意：
 - **僅列出實際在文章中出現的標籤**（無論是誤導工具或新聞價值特徵）。
 - 每一項標註請提供具體描述與評估程度，並引用文章中的字詞、句子或段落作為依據。
+- 只顯示適用的誤導手法（journalistic demerits）和新聞優點（journalistic merits）, 但必須顯示"refined_title", 新聞報道風格（reporting styles）和新聞報道目的（reporting intention）
+- 輸出範例格式必須為標準 JSON
 
 ---
-
-### 請針對每一項誤導工具，依下列格式輸出：
 {{
   "refined_title": "若需要修訂則填入修訂後標題；否則為 null",
   "journalistic_demerits": {{
     "decontextualisation": {{
       "description": "請用繁體中文具體詳細描述該誤導技術在文章中是否出現，以及用文章中的具體用詞解釋出現的方式、程度與語境，並需要準確引用人、物和事說明。",
-      "degree": "not applicable / low / moderate / high"
+      "degree": "low / moderate / high"
     }},
     ...
   }},
   "journalistic_merits": {{
     "multiple_perspectives": {{
       "description": "請用繁體中文具體詳細描述該新聞優點在文章中是否出現，以及用文章中的具體用詞解釋出現的方式、程度與語境，並需要準確引用人、物和事明。",
-      "degree": "not applicable / low / moderate / high"
+      "degree": "low / moderate / high"
     }},
     ...
   }},
@@ -143,7 +144,7 @@ system_prompt = f"""
 print("system_prompt:",system_prompt)
 
 
-def classify_article(article: NewsEntity):
+async def classify_article(article: NewsEntity):
     user_prompt = f"""請分析以下新聞文章，並依 system prompt 的格式與規則輸出結構化 JSON 分析結果:
 
 --- ARTICLE START ---
@@ -151,16 +152,18 @@ def classify_article(article: NewsEntity):
 --- ARTICLE END ---
 """
 
-    response = client.chat.completions.create(
+    response = await asyncio.to_thread(
+        client.chat.completions.create,
         model="Qwen/Qwen3-235B-A22B-Instruct-2507-tput",
         messages=[
             {"role": "system", "content": system_prompt.strip()},
             {"role": "user", "content": user_prompt.strip()}
         ],
+        max_output_tokens=4000,
         temperature=0.6
     )
-
     content = response.choices[0].message.content
+    print("✅ Gotten an LLM response")
 
     # Initialize safe defaults
     refined_title: Optional[str] = None
@@ -188,6 +191,7 @@ def classify_article(article: NewsEntity):
     rt = data.get("refined_title", None)
     if isinstance(rt, str) and rt.strip():
         refined_title = rt.strip()
+        print("✅ Successfully parsed the refined_title")
     else:
         refined_title = None
 
@@ -198,6 +202,7 @@ def classify_article(article: NewsEntity):
             t for t in rs
             if isinstance(t, str) and t in ALLOWED_TAGS["reporting_style"]
         ]
+        print("✅ Successfully parsed the reporting_style")
 
     # reporting_intention (ensure list[str], keep short)
     ri = data.get("reporting_intention", [])
@@ -205,6 +210,7 @@ def classify_article(article: NewsEntity):
         reporting_intention_out = [str(x).strip() for x in ri if isinstance(x, (str, int, float))]
         # Optionally limit to 3
         reporting_intention_out = reporting_intention_out[:3]
+        print("✅ Successfully parsed the reporting_intention")
 
     # journalistic_demerits: keep only tags that appear and have valid structure
     jd = data.get("journalistic_demerits", {})
@@ -242,6 +248,7 @@ def classify_article(article: NewsEntity):
                         "description": desc.strip(),
                         "degree": _normalize_degree(deg)
                     }
+        print("✅ Successfully parsed the journalistic_demerits")
 
     # journalistic_merits: same normalization
     jm = data.get("journalistic_merits", {})
@@ -270,6 +277,7 @@ def classify_article(article: NewsEntity):
                         "description": desc.strip(),
                         "degree": _normalize_degree(deg)
                     }
+        print("✅ Successfully parsed the journalistic_merits")
 
     # Attach to article (NewsEntity should have these attributes)
     # If your NewsEntity uses different field names, adjust here
@@ -279,6 +287,7 @@ def classify_article(article: NewsEntity):
         article.reporting_intention = reporting_intention_out
         article.journalistic_demerits = journalistic_demerits_out
         article.journalistic_merits = journalistic_merits_out
+        print("✅ Successfully attached data to the article")
     except Exception as e:
         print("⚠️ Failed to assign fields to article:", e)
 
@@ -289,3 +298,4 @@ def classify_article(article: NewsEntity):
         "journalistic_demerits": journalistic_demerits_out,
         "journalistic_merits": journalistic_merits_out
     }
+

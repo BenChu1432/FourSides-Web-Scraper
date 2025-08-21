@@ -8,8 +8,6 @@ TOGETHER_AI_API_KEY = os.getenv("TOGETHER_AI_API_KEY")
 
 client = Together(api_key=TOGETHER_AI_API_KEY)
 
-semaphore = asyncio.Semaphore(1.1)  # Only one request at a time
-
 async def translate_article(article: NewsEntity):
     if article.content=="" or not article.content:
         return
