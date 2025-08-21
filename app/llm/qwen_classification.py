@@ -1,16 +1,17 @@
 import asyncio
+import re
 from typing import Dict, List, Optional
 from together import Together
 import json
 import os
 from dotenv import load_dotenv
-
+import google.generativeai as genai
 from app.modals.newsEntity import NewsEntity
 from scrapers.news import AssessmentItem
 
 load_dotenv()
-TOGETHER_AI_API_KEY = os.getenv("TOGETHER_AI_API_KEY")
-client = Together(api_key=TOGETHER_AI_API_KEY)
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+model = genai.GenerativeModel("models/gemini-2.5-flash-lite")  # or replace with latest model name
 # LLAMA:meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo
 # Alibaba: Qwen/Qwen2.5-7B-Instruct-Turbo
 
@@ -117,7 +118,7 @@ system_prompt = f"""
 - **僅列出實際在文章中出現的標籤**（無論是誤導工具或新聞價值特徵）。
 - 每一項標註請提供具體描述與評估程度，並引用文章中的字詞、句子或段落作為依據。
 - 只顯示適用的誤導手法（journalistic demerits）和新聞優點（journalistic merits）, 但必須顯示"refined_title", 新聞報道風格（reporting styles）和新聞報道目的（reporting intention）
-- 輸出範例格式必須為標準 JSON
+- 輸出範例格式必須為標準 JSON，直接輸出純 JSON 結構，不需要額外包裝在 content 欄位下。
 
 ---
 {{
@@ -143,6 +144,28 @@ system_prompt = f"""
 
 print("system_prompt:",system_prompt)
 
+class FieldError(ValueError):
+    pass
+
+def expect(condition: bool, path: str, message: str = ""):
+    if not condition:
+        raise FieldError(f"Field '{path}' invalid. {message}".strip())
+
+def safe_parse_json(content: str):
+    # 嘗試從 markdown 格式中提取純 JSON 區塊
+    match = re.search(r"```json\s*([\s\S]+?)\s*```", content)
+    if not match:
+        # 若無 markdown 標記，直接從第一個 { 開始
+        match = re.search(r"\{[\s\S]+", content)
+        if not match:
+            raise ValueError("⚠️ 無法找到 JSON 區塊")
+    try:
+        json_str = match.group(1) if "```" in match.group(0) else match.group(0)
+        return json.loads(json_str)
+    except json.JSONDecodeError as e:
+        print("❌ JSON decode error at character:", e.pos)
+        print("⛔ 問題附近內容：", json_str[e.pos - 30:e.pos + 30])
+        raise
 
 async def classify_article(article: NewsEntity):
     user_prompt = f"""請分析以下新聞文章，並依 system prompt 的格式與規則輸出結構化 JSON 分析結果:
@@ -152,18 +175,18 @@ async def classify_article(article: NewsEntity):
 --- ARTICLE END ---
 """
 
-    response = await asyncio.to_thread(
-        client.chat.completions.create,
-        model="Qwen/Qwen3-235B-A22B-Instruct-2507-tput",
-        messages=[
-            {"role": "system", "content": system_prompt.strip()},
-            {"role": "user", "content": user_prompt.strip()}
-        ],
-        max_output_tokens=4000,
-        temperature=0.6
-    )
-    content = response.choices[0].message.content
+    chat = model.start_chat(history=[
+        {"role": "user", "parts": [system_prompt.strip()]},
+        ])
+    response = chat.send_message(user_prompt.strip())
     print("✅ Gotten an LLM response")
+    try:
+        content = safe_parse_json(response.text)
+        print("content:",content)
+        print("✅ Safely parsed the text")
+    except Exception as e:
+        print("⚠️ Failed to parse the json:", e)
+        return None
 
     # Initialize safe defaults
     refined_title: Optional[str] = None
@@ -180,122 +203,126 @@ async def classify_article(article: NewsEntity):
         # If model outputs "not applicable", just skip the item later (we only keep appeared tags)
         return "low"
 
-    try:
-        data = json.loads(content)
-    except json.JSONDecodeError:
-        print("⚠️ Failed to parse JSON. Raw output:")
+    data = content
+    if not isinstance(data, dict):
+        print("⚠️ Parsed content is not a dict. Raw output:")
         print(content)
         return None
-
     # refined_title
-    rt = data.get("refined_title", None)
-    if isinstance(rt, str) and rt.strip():
-        refined_title = rt.strip()
-        print("✅ Successfully parsed the refined_title")
-    else:
-        refined_title = None
-
-    # reporting_style (only keep allowed tags and ensure list[str])
-    rs = data.get("reporting_style", [])
-    if isinstance(rs, list):
-        reporting_style_out = [
-            t for t in rs
-            if isinstance(t, str) and t in ALLOWED_TAGS["reporting_style"]
-        ]
-        print("✅ Successfully parsed the reporting_style")
-
-    # reporting_intention (ensure list[str], keep short)
-    ri = data.get("reporting_intention", [])
-    if isinstance(ri, list):
-        reporting_intention_out = [str(x).strip() for x in ri if isinstance(x, (str, int, float))]
-        # Optionally limit to 3
-        reporting_intention_out = reporting_intention_out[:3]
-        print("✅ Successfully parsed the reporting_intention")
-
-    # journalistic_demerits: keep only tags that appear and have valid structure
-    jd = data.get("journalistic_demerits", {})
-    if isinstance(jd, dict):
-        for key, item in jd.items():
-            # Map keys that may come with **bold** or localized text to canonical key
-            # We accept the canonical english snake_case keys from ALLOWED_TAGS
-            canonical_keys = [t.split("**")[1] if t.startswith("**") else t for t in ALLOWED_TAGS["journalistic_demerits"]]
-            # Build a map of clean_key -> allowed
-            clean_allowed = set()
-            for t in ALLOWED_TAGS["journalistic_demerits"]:
-                # t is like "**decontextualisation**（…）"
-                # extract between ** if present
-                if t.startswith("**") and "**" in t[2:]:
-                    clean = t.split("**")[1].strip()
-                else:
-                    clean = t
-                # ensure final clean is like decontextualisation
-                clean = clean.replace("（", " ").replace("）", " ").strip()
-                # take first token till space or parenthesis
-                clean = clean.split()[0]
-                clean_allowed.add(clean)
-
-            clean_key = key.strip("* ").split("**")[-1] if "**" in key else key.strip()
-            clean_key = clean_key.replace("（", " ").replace("）", " ").strip().split()[0]
-
-            if clean_key in clean_allowed and isinstance(item, dict):
-                desc = item.get("description", "")
-                deg = item.get("degree", "").lower() if isinstance(item.get("degree"), str) else ""
-                # Skip "not applicable" or empty descriptions
-                if isinstance(desc, str) and desc.strip():
-                    if deg == "not applicable":
-                        continue
-                    journalistic_demerits_out[clean_key] = {
-                        "description": desc.strip(),
-                        "degree": _normalize_degree(deg)
-                    }
-        print("✅ Successfully parsed the journalistic_demerits")
-
-    # journalistic_merits: same normalization
-    jm = data.get("journalistic_merits", {})
-    if isinstance(jm, dict):
-        clean_allowed = set()
-        for t in ALLOWED_TAGS["journalistic_merits"]:
-            # similar extraction
-            if t.startswith("**") and "**" in t[2:]:
-                clean = t.split("**")[1].strip()
-            else:
-                clean = t
-            clean = clean.replace("（", " ").replace("）", " ").strip()
-            clean = clean.split()[0]
-            clean_allowed.add(clean)
-
-        for key, item in jm.items():
-            clean_key = key.strip("* ").split("**")[-1] if "**" in key else key.strip()
-            clean_key = clean_key.replace("（", " ").replace("）", " ").strip().split()[0]
-            if clean_key in clean_allowed and isinstance(item, dict):
-                desc = item.get("description", "")
-                deg = item.get("degree", "").lower() if isinstance(item.get("degree"), str) else ""
-                if isinstance(desc, str) and desc.strip():
-                    if deg == "not applicable":
-                        continue
-                    journalistic_merits_out[clean_key] = {
-                        "description": desc.strip(),
-                        "degree": _normalize_degree(deg)
-                    }
-        print("✅ Successfully parsed the journalistic_merits")
-
-    # Attach to article (NewsEntity should have these attributes)
-    # If your NewsEntity uses different field names, adjust here
     try:
+        # refined_title
+        path = "refined_title"
+        expect(path in data, path, "Missing top-level key")
+        rt = data.get(path)
+        # allow null or string
+        expect(rt is None or isinstance(rt, str), path, f"Expected null or string, got {type(rt).__name__}")
+        refined_title = rt.strip() if isinstance(rt, str) and rt.strip() else None
+
+        # reporting_style
+        path = "reporting_style"
+        expect(path in data, path, "Missing top-level key")
+        rs = data.get(path)
+        expect(isinstance(rs, list), path, f"Expected list, got {type(rs).__name__}")
+        expect(all(isinstance(t, str) for t in rs), path, "All items must be strings")
+        reporting_style_out = [t for t in rs if t in ALLOWED_TAGS["reporting_style"]]
+
+        # reporting_intention
+        path = "reporting_intention"
+        expect(path in data, path, "Missing top-level key")
+        ri = data.get(path)
+        expect(isinstance(ri, list), path, f"Expected list, got {type(ri).__name__}")
+        reporting_intention_out = [str(x).strip() for x in ri if isinstance(x, (str, int, float))][:3]
+
+        # journalistic_demerits
+        path = "journalistic_demerits"
+        jd = data.get(path, {})
+        expect(isinstance(jd, dict), path, f"Expected object, got {type(jd).__name__}")
+
+        clean_allowed_demerits = set()
+        for t in ALLOWED_TAGS["journalistic_demerits"]:
+            clean = t.split("**")[1].strip() if t.startswith("**") and "**" in t[2:] else t
+            clean = clean.replace("（", " ").replace("）", " ").strip().split()[0]
+            clean_allowed_demerits.add(clean)
+
+        journalistic_demerits_out = {}
+        for key, item in jd.items():
+            key_path = f"{path}.{key}"
+            expect(isinstance(item, dict), key_path, "Expected object for tag")
+            clean_key = key.strip("* ").split("**")[-1] if "**" in key else key.strip()
+            clean_key = clean_key.replace("（", " ").replace("）", " ").strip().split()[0]
+            if clean_key not in clean_allowed_demerits:
+                # skip unknown tags silently or raise to be strict:
+                # raise FieldError(f"Unknown demerit tag at '{key_path}': {clean_key}")
+                continue
+            desc = item.get("description", "")
+            deg = (item.get("degree") or "").lower()
+            expect(isinstance(desc, str), f"{key_path}.description", "Expected string")
+            if desc.strip():
+                if deg == "not applicable":
+                    continue
+                allowed_deg = {"low", "moderate", "high"}
+                if deg and deg not in allowed_deg:
+                    raise FieldError(f"Invalid degree '{deg}' at '{key_path}.degree' (allowed: {allowed_deg})")
+                journalistic_demerits_out[clean_key] = {
+                    "description": desc.strip(),
+                    "degree": deg if deg in allowed_deg else "low",
+                }
+
+        # journalistic_merits
+        path = "journalistic_merits"
+        jm = data.get(path, {})
+        expect(isinstance(jm, dict), path, f"Expected object, got {type(jm).__name__}")
+
+        clean_allowed_merits = set()
+        for t in ALLOWED_TAGS["journalistic_merits"]:
+            clean = t.split("**")[1].strip() if t.startswith("**") and "**" in t[2:] else t
+            clean = clean.replace("（", " ").replace("）", " ").strip().split()[0]
+            clean_allowed_merits.add(clean)
+
+        journalistic_merits_out = {}
+        for key, item in jm.items():
+            key_path = f"{path}.{key}"
+            expect(isinstance(item, dict), key_path, "Expected object for tag")
+            clean_key = key.strip("* ").split("**")[-1] if "**" in key else key.strip()
+            clean_key = clean_key.replace("（", " ").replace("）", " ").strip().split()[0]
+            if clean_key not in clean_allowed_merits:
+                continue
+            desc = item.get("description", "")
+            deg = (item.get("degree") or "").lower()
+            expect(isinstance(desc, str), f"{key_path}.description", "Expected string")
+            if desc.strip():
+                if deg == "not applicable":
+                    continue
+                allowed_deg = {"low", "moderate", "high"}
+                if deg and deg not in allowed_deg:
+                    raise FieldError(f"Invalid degree '{deg}' at '{key_path}.degree' (allowed: {allowed_deg})")
+                journalistic_merits_out[clean_key] = {
+                    "description": desc.strip(),
+                    "degree": deg if deg in allowed_deg else "low",
+                }
+
+        # attach
         article.refined_title = refined_title
         article.reporting_style = reporting_style_out
         article.reporting_intention = reporting_intention_out
         article.journalistic_demerits = journalistic_demerits_out
         article.journalistic_merits = journalistic_merits_out
-        print("✅ Successfully attached data to the article")
+        return {
+            "refined_title": refined_title,
+            "reporting_style": reporting_style_out,
+            "reporting_intention": reporting_intention_out,
+            "journalistic_demerits": journalistic_demerits_out,
+            "journalistic_merits": journalistic_merits_out
+        }
+
     except Exception as e:
-        print("⚠️ Failed to assign fields to article:", e)
+        # add article context to the error
+        article_id = getattr(article, "id", None)
+        article_url = getattr(article, "url", None)
+        meta = f"(article_id={article_id}, url={article_url})"
+        raise FieldError(f"{meta} {e}") from e
 
-    return {
-        "refined_title": refined_title,
-        "reporting_style": reporting_style_out,
-        "reporting_intention": reporting_intention_out,
-        "journalistic_demerits": journalistic_demerits_out,
-        "journalistic_merits": journalistic_merits_out
-    }
-
+async def classify_articles(articles: List[NewsEntity]):
+    tasks = [classify_article(article) for article in articles]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    return results

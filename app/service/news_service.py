@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from app.aws_lambda.send_logs_to_db import send_log_to_lambda
 from app.db.database import AsyncSessionLocal
 from app.enums.enums import ErrorTypeEnum
-from app.llm.qwen_classification import classify_article
+from app.llm.qwen_classification import classify_article, classify_articles
 from app.llm.llama_8B_translation import translate_article
 from app.service import scrape_service
 from scrapers.news import News
@@ -56,32 +56,18 @@ async def scrape_classify_and_store_news_for_one_news_outlet(parser_class: Type[
     # Translate
     # await asyncio.gather(*[translate_article(article) for article in articles])
     # Tagging
-    try:
-        print("🧠 Starting classification...")
-        results = await asyncio.gather(
-            *(classify_article(article) for article in articles),
-            return_exceptions=True
-        )
-
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                print(f"❌ Classification failed for article[{i}]: {result}")
-                await send_log_to_lambda(
-                    jobId,
-                    failure_type=ErrorTypeEnum.LLM_ERROR,
-                    detail=f"❌ Failed to use the LLM to analyze articles: {result}",
-                    media_name=media_name,
-                    urls=[article.url for article in articles]
-                )
-    except Exception as e:
-        print("❌ Failed to classify articles:", e)
-        await send_log_to_lambda(
-            jobId,
-            failure_type=ErrorTypeEnum.LLM_ERROR,
-            detail=f"❌ Failed to use the LLM to analyze articles: {e}",
-            media_name=media_name,
-            urls=[article.url for article in articles]
-        )
+    print("🧠 Starting classification...")
+    results = await classify_articles(articles)
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            print(f"❌ Classification failed for article[{i}]: {repr(result)}")
+            await send_log_to_lambda(
+                jobId,
+                failure_type=ErrorTypeEnum.LLM_ERROR,
+                detail=f"Failed to analyze article[{i}]: {repr(result)}",
+                media_name=media_name,
+                urls=[a.url for a in articles]  # or just the failing one
+            )
 
     print("🧠 Classification complete.")
     # Store
