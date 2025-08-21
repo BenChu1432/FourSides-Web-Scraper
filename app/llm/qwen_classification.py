@@ -162,6 +162,7 @@ def safe_parse_json(content: str):
         raise
 
 async def classify_article(article: NewsEntity):
+    print("🌈 classifying the news:",article.url)
     user_prompt = f"""請分析以下新聞文章，並依 system prompt 的格式與規則輸出結構化 JSON 分析結果:
 
 --- ARTICLE START ---

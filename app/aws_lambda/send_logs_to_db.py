@@ -38,8 +38,8 @@ async def send_log_to_lambda(
             return
         payload["url"] = urls
     headers = {"Content-Type": "application/json"}
-    print("AWS_LOGGING_LAMBDA_URL:",AWS_LOGGING_LAMBDA_URL)
-    print("error payload:",payload)
+    print("❌ AWS_LOGGING_LAMBDA_URL:",AWS_LOGGING_LAMBDA_URL)
+    print("❌ error payload:",payload)
     try:
         async with aiohttp.ClientSession() as session:
             url=f'{AWS_LOGGING_LAMBDA_URL}/create/scrape-failure'
