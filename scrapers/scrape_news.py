@@ -60,7 +60,7 @@ async def scrape_unique_news(parser_class: type[News],jobId,db_factory):
             # Fallback to Lambda
 
      # ******************************************DB Connection******************************************
-
+    print("list_of_news:",list_of_news)
     return list_of_news
 
 
