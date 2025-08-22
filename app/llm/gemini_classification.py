@@ -68,7 +68,7 @@ ALLOWED_TAGS = {
         "**moral_judgment_framing**（道德判斷包裝）",
         "**cultural_essentialism**（文化本質論）",
         "**traditional_values_shield**（主張傳統價值作擋箭牌）",
-        "**pre-criminal_framing**（預設有罪）"
+        "**pre_criminal_framing**（預設有罪）"
     ],
     "reporting_style": [
         "he_said_she_said_reporting", 
@@ -81,7 +81,10 @@ ALLOWED_TAGS = {
         "sensationalist_reporting", 
         "stenographic_reporting",
         "data_journalism", 
-        "explanatory_reporting"
+        "explanatory_reporting",
+        "entertainment_reporting",
+        "infotainment_reporting",
+        "patriotic_reporting"
     ]
 }
 journalistic_merits_list = "\n".join([f"- {tag}" for tag in ALLOWED_TAGS["journalistic_merits"]])
