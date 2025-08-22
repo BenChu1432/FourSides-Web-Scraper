@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 from app.modals.newsEntity import NewsEntity
 from scrapers.news import AssessmentItem
+import random
 
 load_dotenv()
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
@@ -158,167 +159,155 @@ def safe_parse_json(content: str):
         return json.loads(json_str)
     except json.JSONDecodeError as e:
         print("❌ JSON decode error at character:", e.pos)
+        print("content:",content)
+        print("json_str:",json_str)
         print("⛔ 問題附近內容：", json_str[e.pos - 30:e.pos + 30])
         raise
 
-async def classify_article(article: NewsEntity):
-    print("🌈 classifying the news:",article.url)
+def _set_empty_fields(a):
+    a.refined_title = None
+    a.reporting_style = []
+    a.reporting_intention = []
+    a.journalistic_demerits = {}
+    a.journalistic_merits = {}
+
+def _is_retriable_error_msg(msg: str) -> bool:
+    # Based on Gemini troubleshooting guide: 500 INTERNAL, 503 UNAVAILABLE, 504 DEADLINE_EXCEEDED
+    # Also handle common wording
+    msg = (msg or "").upper()
+    retriable_tokens = ("500", "503", "504", "INTERNAL", "UNAVAILABLE", "DEADLINE_EXCEEDED", "TIMEOUT")
+    return any(tok in msg for tok in retriable_tokens)
+
+async def classify_article(article: NewsEntity, max_retries: int = 3):
+    print("🌈 classifying the news:", article.url)
+
+    # Prefill defaults so downstream never breaks
+    _set_empty_fields(article)
+
+    # Optional: truncate to mitigate deadline/exceeded and 500 due to very long context
+    content = article.content or ""
+
     user_prompt = f"""請分析以下新聞文章，並依 system prompt 的格式與規則輸出結構化 JSON 分析結果:
 
 --- ARTICLE START ---
-{article.content}
+{content}
 --- ARTICLE END ---
 """
 
-    chat = model.start_chat(history=[
-        {"role": "user", "parts": [system_prompt.strip()]},
-        ])
-    response = chat.send_message(user_prompt.strip())
-    print("✅ Gotten an LLM response")
-    try:
-        content = safe_parse_json(response.text)
-        print("content:",content)
-        print("✅ Safely parsed the text")
-    except Exception as e:
-        print("⚠️ Failed to parse the json:", e)
-        return None
+    delay = 0.8  # backoff starting delay
+    for attempt in range(max_retries):
+        try:
+            chat = model.start_chat(history=[{"role": "user", "parts": [system_prompt.strip()]}])
+            # Set a timeout so calls don't hang forever (504 guidance: increase timeout if needed)
+            response = chat.send_message(user_prompt.strip())
+            print("✅ Gotten an LLM response")
 
-    # Initialize safe defaults
-    refined_title: Optional[str] = None
-    reporting_style_out: List[str] = []
-    reporting_intention_out: List[str] = []
-    journalistic_demerits_out: Dict[str, AssessmentItem] = {}
-    journalistic_merits_out: Dict[str, AssessmentItem] = {}
+            try:
+                data = safe_parse_json(response.text)
+            except Exception as parse_err:
+                # Parsing error isn't a backend 500/503/504; treat as non-retriable unless model hinted at a service issue
+                msg = str(parse_err)
+                if _is_retriable_error_msg(msg) and attempt < max_retries - 1:
+                    await asyncio.sleep(delay + random.random() * 0.5)
+                    delay *= 2
+                    continue
+                print("⚠️ Failed to parse JSON:", parse_err)
+                return {"ok": False, "error": f"parse_error: {msg}"}
 
-    def _normalize_degree(val: str) -> str:
-        # Accept only your Degree literal, fallback to "low" if invalid
-        allowed = {"low", "moderate", "high"}
-        if isinstance(val, str) and val.lower() in allowed:
-            return val.lower()
-        # If model outputs "not applicable", just skip the item later (we only keep appeared tags)
-        return "low"
+            if not isinstance(data, dict):
+                return {"ok": False, "error": "parse_error: model output is not a JSON object"}
 
-    data = content
-    if not isinstance(data, dict):
-        print("⚠️ Parsed content is not a dict. Raw output:")
-        print(content)
-        return None
-    # refined_title
-    rt = data.get("refined_title", None)
-    print("rt:",rt)
-    if isinstance(rt, str) and rt.strip():
-        refined_title = rt.strip()
-        print("✅ Successfully parsed the refined_title")
-    else:
-        refined_title = None
+            # Initialize locals
+            refined_title: Optional[str] = None
+            reporting_style_out: List[str] = []
+            reporting_intention_out: List[str] = []
+            journalistic_demerits_out: Dict[str, AssessmentItem] = {}
+            journalistic_merits_out: Dict[str, AssessmentItem] = {}
 
-    # reporting_style (only keep allowed tags and ensure list[str])
-    rs = data.get("reporting_style", [])
-    print("rs:",rs)
-    if isinstance(rs, list):
-        reporting_style_out = [
-            t for t in rs
-            if isinstance(t, str) and t in ALLOWED_TAGS["reporting_style"]
-        ]
-        print("✅ Successfully parsed the reporting_style")
+            def _normalize_degree(val: str) -> str:
+                allowed = {"low", "moderate", "high"}
+                return val.lower() if isinstance(val, str) and val.lower() in allowed else "low"
 
-    # reporting_intention (ensure list[str], keep short)
-    ri = data.get("reporting_intention", [])
-    print("ri:",ri)
-    if isinstance(ri, list):
-        reporting_intention_out = [str(x).strip() for x in ri if isinstance(x, (str, int, float))]
-        # Optionally limit to 3
-        reporting_intention_out = reporting_intention_out[:3]
-        print("✅ Successfully parsed the reporting_intention")
+            # refined_title
+            rt = data.get("refined_title")
+            refined_title = rt.strip() if isinstance(rt, str) and rt.strip() else None
 
-    # journalistic_demerits: keep only tags that appear and have valid structure
-    jd = data.get("journalistic_demerits", {})
-    print("jd:",jd)
-    if isinstance(jd, dict):
-        for key, item in jd.items():
-            # Map keys that may come with **bold** or localized text to canonical key
-            # We accept the canonical english snake_case keys from ALLOWED_TAGS
-            canonical_keys = [t.split("**")[1] if t.startswith("**") else t for t in ALLOWED_TAGS["journalistic_demerits"]]
-            # Build a map of clean_key -> allowed
-            clean_allowed = set()
-            for t in ALLOWED_TAGS["journalistic_demerits"]:
-                # t is like "**decontextualisation**（…）"
-                # extract between ** if present
-                if t.startswith("**") and "**" in t[2:]:
-                    clean = t.split("**")[1].strip()
-                else:
-                    clean = t
-                # ensure final clean is like decontextualisation
-                clean = clean.replace("（", " ").replace("）", " ").strip()
-                # take first token till space or parenthesis
-                clean = clean.split()[0]
-                clean_allowed.add(clean)
+            # reporting_style
+            rs = data.get("reporting_style", [])
+            if isinstance(rs, list):
+                reporting_style_out = [t for t in rs if isinstance(t, str) and t in ALLOWED_TAGS["reporting_style"]]
 
-            clean_key = key.strip("* ").split("**")[-1] if "**" in key else key.strip()
-            clean_key = clean_key.replace("（", " ").replace("）", " ").strip().split()[0]
+            # reporting_intention
+            ri = data.get("reporting_intention", [])
+            if isinstance(ri, list):
+                reporting_intention_out = [str(x).strip() for x in ri if isinstance(x, (str, int, float))][:3]
 
-            if clean_key in clean_allowed and isinstance(item, dict):
-                desc = item.get("description", "")
-                deg = item.get("degree", "").lower() if isinstance(item.get("degree"), str) else ""
-                # Skip "not applicable" or empty descriptions
-                if isinstance(desc, str) and desc.strip():
-                    if deg == "not applicable":
-                        continue
-                    journalistic_demerits_out[clean_key] = {
-                        "description": desc.strip(),
-                        "degree": _normalize_degree(deg)
-                    }
-        print("✅ Successfully parsed the journalistic_demerits")
+            # journalistic_demerits
+            jd = data.get("journalistic_demerits", {})
+            if isinstance(jd, dict):
+                clean_allowed = set()
+                for t in ALLOWED_TAGS["journalistic_demerits"]:
+                    clean = t.split("**")[1].strip() if t.startswith("**") and "**" in t[2:] else t
+                    clean = clean.replace("（", " ").replace("）", " ").strip().split()[0]
+                    clean_allowed.add(clean)
+                for key, item in jd.items():
+                    clean_key = key.strip("* ").split("**")[-1] if "**" in key else key.strip()
+                    clean_key = clean_key.replace("（", " ").replace("）", " ").strip().split()[0]
+                    if clean_key in clean_allowed and isinstance(item, dict):
+                        desc = item.get("description", "")
+                        deg = item.get("degree", "")
+                        if isinstance(desc, str) and desc.strip():
+                            if isinstance(deg, str) and deg.lower() == "not applicable":
+                                continue
+                            journalistic_demerits_out[clean_key] = {
+                                "description": desc.strip(),
+                                "degree": _normalize_degree(deg)
+                            }
 
-    # journalistic_merits: same normalization
-    jm = data.get("journalistic_merits", {})
-    print("jm:",jm)
-    if isinstance(jm, dict):
-        clean_allowed = set()
-        for t in ALLOWED_TAGS["journalistic_merits"]:
-            # similar extraction
-            if t.startswith("**") and "**" in t[2:]:
-                clean = t.split("**")[1].strip()
-            else:
-                clean = t
-            clean = clean.replace("（", " ").replace("）", " ").strip()
-            clean = clean.split()[0]
-            clean_allowed.add(clean)
+            # journalistic_merits
+            jm = data.get("journalistic_merits", {})
+            if isinstance(jm, dict):
+                clean_allowed = set()
+                for t in ALLOWED_TAGS["journalistic_merits"]:
+                    clean = t.split("**")[1].strip() if t.startswith("**") and "**" in t[2:] else t
+                    clean = clean.replace("（", " ").replace("）", " ").strip().split()[0]
+                    clean_allowed.add(clean)
+                for key, item in jm.items():
+                    clean_key = key.strip("* ").split("**")[-1] if "**" in key else key.strip()
+                    clean_key = clean_key.replace("（", " ").replace("）", " ").strip().split()[0]
+                    if clean_key in clean_allowed and isinstance(item, dict):
+                        desc = item.get("description", "")
+                        deg = item.get("degree", "")
+                        if isinstance(desc, str) and desc.strip():
+                            if isinstance(deg, str) and deg.lower() == "not applicable":
+                                continue
+                            journalistic_merits_out[clean_key] = {
+                                "description": desc.strip(),
+                                "degree": _normalize_degree(deg)
+                            }
 
-        for key, item in jm.items():
-            clean_key = key.strip("* ").split("**")[-1] if "**" in key else key.strip()
-            clean_key = clean_key.replace("（", " ").replace("）", " ").strip().split()[0]
-            if clean_key in clean_allowed and isinstance(item, dict):
-                desc = item.get("description", "")
-                deg = item.get("degree", "").lower() if isinstance(item.get("degree"), str) else ""
-                if isinstance(desc, str) and desc.strip():
-                    if deg == "not applicable":
-                        continue
-                    journalistic_merits_out[clean_key] = {
-                        "description": desc.strip(),
-                        "degree": _normalize_degree(deg)
-                    }
-        print("✅ Successfully parsed the journalistic_merits")
+            # Attach to the article
+            article.refined_title = refined_title
+            article.reporting_style = reporting_style_out
+            article.reporting_intention = reporting_intention_out
+            article.journalistic_demerits = journalistic_demerits_out
+            article.journalistic_merits = journalistic_merits_out
 
-    # Attach to article (NewsEntity should have these attributes)
-    # If your NewsEntity uses different field names, adjust here
-    try:
-        article.refined_title = refined_title
-        article.reporting_style = reporting_style_out
-        article.reporting_intention = reporting_intention_out
-        article.journalistic_demerits = journalistic_demerits_out
-        article.journalistic_merits = journalistic_merits_out
-        print("✅ Successfully attached data to the article")
-    except Exception as e:
-        print("⚠️ Failed to assign fields to article:", e)
-    print("🥳 Successfully parsed everything!")
-    return {
-        "refined_title": refined_title,
-        "reporting_style": reporting_style_out,
-        "reporting_intention": reporting_intention_out,
-        "journalistic_demerits": journalistic_demerits_out,
-        "journalistic_merits": journalistic_merits_out
-    }
+            print("🥳 Successfully attached data to the article")
+            return {"ok": True}
+
+        except Exception as e:
+            msg = str(e)
+            if _is_retriable_error_msg(msg) and attempt < max_retries - 1:
+                await asyncio.sleep(delay + random.random() * 0.5)
+                delay *= 2
+                continue
+            # Per Gemini troubleshooting guide:
+            # - 500 INTERNAL: unexpected error -> reduce input or switch model; retry already attempted
+            # - 503 UNAVAILABLE: service overloaded -> retry already attempted
+            # - 504 DEADLINE_EXCEEDED: increase timeout -> we used 60s; consider higher if needed
+            print("⚠️ Classification error (final):", e)
+            return {"ok": False, "error": msg}
 
 async def classify_articles(articles: List[NewsEntity]):
     tasks = [classify_article(article) for article in articles]
