@@ -86,8 +86,13 @@ async def store_all_articles(articles: List[NewsEntity], db):
             continue
 
         # ✅ Handle Enum safely
-        media_name_str = getattr(article.media_name, "value", article.media_name)
-        origin_str = getattr(article.origin, "value", article.origin)
+        def get_enum_value(val):
+            if hasattr(val, "value"):
+                return val.value
+            return val if val is not None else ""
+
+        media_name_str = get_enum_value(article.media_name)
+        origin_str = get_enum_value(article.origin)
 
         # ✅ Generate id if missing
         article_id = getattr(article, "id", None) or uuid.uuid4()

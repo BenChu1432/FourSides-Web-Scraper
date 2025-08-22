@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 import aiohttp
 import asyncio
 import logging
@@ -19,7 +19,7 @@ async def send_log_to_lambda(
     detail: str,
     failure_type: ErrorTypeEnum,
     media_name: MediaNameEnum,
-    urls: Optional[str] = None,
+    urls: Optional[Union[str, List[str]]] = None,
 ):
     # Validate required fields
     if not detail.strip():
@@ -32,17 +32,22 @@ async def send_log_to_lambda(
         "media_name": media_name.value
     }
 
+    # Normalize urls
     if urls:
-        if not isinstance(urls, str):
-            logger.warning("❌ 'url' must be a string if provided.")
-            return
+        if isinstance(urls, list):
+            urls = ", ".join([str(u).strip() for u in urls if u])
+        elif not isinstance(urls, str):
+            urls = str(urls)
+
         payload["url"] = urls
+
     headers = {"Content-Type": "application/json"}
-    print("❌ AWS_LOGGING_LAMBDA_URL:",AWS_LOGGING_LAMBDA_URL)
-    print("❌ error payload:",payload)
+    print("❌ AWS_LOGGING_LAMBDA_URL:", AWS_LOGGING_LAMBDA_URL)
+    print("❌ error payload:", payload)
+
     try:
         async with aiohttp.ClientSession() as session:
-            url=f'{AWS_LOGGING_LAMBDA_URL}/create/scrape-failure'
+            url = f'{AWS_LOGGING_LAMBDA_URL}/create/scrape-failure'
             async with session.post(url, json=payload, headers=headers) as response:
                 if response.status != 200:
                     error_text = await response.text()
