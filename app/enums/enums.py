@@ -58,6 +58,10 @@ class MediaNameEnum(str, Enum):
     ETtoday = "ETtoday"
     NewTalk = "NewTalk"
     FTV = "FTV"
+    TFCNews="TFCNews"
+    FactcheckLab="FactcheckLab"
+    MyGoPenNews="MyGoPenNews"
+
 
 class ErrorTypeEnum(str, Enum):
     LLM_ERROR="LLM_ERROR"

@@ -33,7 +33,6 @@ class NewsEntity(Base):
     )
 
     content = Column(Text, nullable=True)
-    content_en = Column(Text, nullable=True)
     published_at = Column(Integer, nullable=True)
 
     authors = Column(ARRAY(String), nullable=True)
@@ -54,3 +53,5 @@ class NewsEntity(Base):
 
     # Many-to-many through NewsAuthor
     authorships = relationship("NewsAuthorEntity", back_populates="news")
+
+    questions = relationship("NewsQuestionEntity", back_populates="news", cascade="all, delete-orphan")

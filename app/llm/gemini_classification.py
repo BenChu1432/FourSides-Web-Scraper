@@ -9,12 +9,11 @@ import google.generativeai as genai
 from app.modals.newsEntity import NewsEntity
 from scrapers.news import AssessmentItem
 import random
+from util import traditionalChineseUtil
 
 load_dotenv()
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-model = genai.GenerativeModel("models/gemini-2.5-flash-lite")  # or replace with latest model name
-# LLAMA:meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo
-# Alibaba: Qwen/Qwen2.5-7B-Instruct-Turbo
+model = genai.GenerativeModel("models/gemini-2.5-flash-lite") 
 
 ALLOWED_TAGS = {
     "journalistic_merits": [
@@ -142,7 +141,7 @@ system_prompt = f"""
     ...
   }},
   "reporting_style": [選用適用的報道風格, ...],
-  "reporting_intention": [簡短準確指出1-3個報道目的和用意, ...],
+  "reporting_intention": [用最多10字準確指出1-3個報道目的和用意, ...],
 }}
 """
 
@@ -193,7 +192,7 @@ async def classify_article(article: NewsEntity, max_retries: int = 3):
     user_prompt = f"""請分析以下新聞文章，並依 system prompt 的格式與規則輸出結構化 JSON 分析結果:
 
 --- ARTICLE START ---
-{content}
+{traditionalChineseUtil.safeTranslateIntoTraditionalChinese(content)}
 --- ARTICLE END ---
 """
 

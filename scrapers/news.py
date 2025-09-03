@@ -42,7 +42,6 @@ class News(ABC):
     media_name: Optional[str]
     title: Optional[str]
     content: Optional[str]
-    content_en: Optional[str]
     published_at: Optional[int]
     authors: List[str]
     images: List[str]
@@ -62,7 +61,6 @@ class News(ABC):
         self.max_pages=1
         self.title = None
         self.content = None
-        self.content_en= None
         self.published_at=None
         self.origin="native"
         self.authors=[]
@@ -5083,7 +5081,7 @@ class YahooNews(News):
 class MyGoPenNews(News):
     def __init__(self, url=None):
         super().__init__(url)
-        self.media_name = "MyGoPen"
+        self.media_name = "MyGoPenNews"
         self.feed_url = "https://www.mygopen.com/feeds/posts/default?alt=rss"
         self.max_articles = 10
 
@@ -5137,15 +5135,9 @@ class MyGoPenNews(News):
 class TFCNews:
     def __init__(self, url=None):
         self.url = url
-        self.media_name = "TFC"
+        self.media_name = "TFCNews"
         self.max_pages = 2
-        self.title = None
-        self.summary = None
-        self.published_at = None
-        self.authors = []
-        self.content = None
-        self.images = []
-        self.origin = "台灣事實查核中心"
+        self.origin = "native"
 
     def _get_article_urls(self):
         driver = self.get_chrome_driver()
@@ -5252,7 +5244,7 @@ class TFCNews:
 class FactcheckLab(News):
     def __init__(self, url=None):
         super().__init__(url)  # Call parent constructor
-        self.media_name = "Factcheck Lab 事實查核實驗室"
+        self.media_name = "FactcheckLab"
         self.max_pages = 1
         self.max_workers = 5
 

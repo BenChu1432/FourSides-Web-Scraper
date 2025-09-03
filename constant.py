@@ -58,7 +58,11 @@ NEWS_CLASSES = {
     "ETtoday": ETtoday,
     "NewTalk": NewTalk,
     "FTV": FTV,
+    "FactcheckLab":FactcheckLab,
+    "TFCNews":TFCNews,
+    "MyGoPenNews":MyGoPenNews
 }
+# if news_instance.media_name!="FactcheckLab" and news_instance.media_name!="TFCNews" and news_instance.media_name!="MyGoPenNews":
 
 TAIWAN_MEDIA:List[News]=[
     UnitedDailyNews,
@@ -91,6 +95,9 @@ TAIWAN_MEDIA:List[News]=[
     VOC,
     ChineseNewYorkTimes,
     ChinaDailyNews,
+    FactcheckLab,
+    TFCNews,
+    MyGoPenNews
 ]
 
 # 聯合報,自由時報,中國時報,中央通訊社,工商時報,公視新聞,工商時報,民眾網,台灣時報,中華日報,三立新聞網,蘋果新聞網,台視新聞,鏡週刊,今日新聞,風傳媒,TVBS新聞,東森新聞,ETtoday新聞雲,新頭殼,中天新聞,民視新聞,台灣英文新聞,時報周刊,台灣新生報,華視新聞,雅虎新聞,BBC 中文網,德國之聲中文網,美國之音中文網,紐約時報中文網

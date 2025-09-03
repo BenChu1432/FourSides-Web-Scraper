@@ -47,7 +47,7 @@ async def scrape_classify_and_store_news_for_one_news_outlet(media_name: str) ->
     parser_class = NEWS_CLASSES.get(media_name)
 
     try:
-        await news_service.scrape_classify_and_store_news_for_one_news_outlet(parser_class)
+        await news_service.scrape_generate_question_and_classify_and_store_news_for_one_news_outlet(parser_class)
         return []
     except Exception as e:
         print("Either scrape/classify/store goes wrong!:",e)
