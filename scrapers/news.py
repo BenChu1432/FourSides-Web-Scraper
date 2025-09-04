@@ -4069,7 +4069,6 @@ class ETtoday(News):
         for selector in authors_selectors:
             element = soup.select_one(selector["selector"])
             isOutLoopReadyToBreak=False
-            print("element:",element)
             if element:
                 for p in element.find_all('p'):
                     text = p.get_text()
@@ -4091,14 +4090,17 @@ class ETtoday(News):
             element = soup.select_one(selector["selector"])
             if element:
                     date=element.get_text(strip=True)
+                    print("date:",date)
                     self.published_at = standardTaipeiDateToTimestamp(date)
         # Additional extraction from <time> tag with 'datetime' attribute
         try:
             published_time_tag = soup.find("time", itemprop="datePublished")
             print("Found published_time_tag:", published_time_tag)
-            if published_time_tag and published_time_tag.has_attr("datetime"):
-                datetime_str = published_time_tag["datetime"]
-                print("Extracted datetime attribute:", datetime_str)
+            if published_time_tag:
+                datetime_str = published_time_tag.get("datetime", "").strip()
+                if not datetime_str or len(datetime_str) <= 5:
+                    datetime_str = published_time_tag.get_text(strip=True)
+                print("Extracted datetime:", datetime_str)
                 self.published_at = standardTaipeiDateToTimestamp(datetime_str)
         except Exception as e:
             print("Error extracting from <time itemprop='datePublished'>:", e)
