@@ -35,9 +35,9 @@ def _parse_to_utc(
     return dt
 
 
-def standardDateToTimestamp(date_str: str) -> int:
+def standardTaipeiDateToTimestamp(date_str: str) -> int:
     # Generic parser: assume UTC if no tz in the string
-    dt = _parse_to_utc(date_str, default_tz='UTC')
+    dt = _parse_to_utc(date_str, default_tz='Asia/Taipei')
     return int(dt.timestamp())
 
 
