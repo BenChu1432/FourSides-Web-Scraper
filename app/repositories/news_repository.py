@@ -5,7 +5,7 @@ from app.modals.authorEntity import AuthorEntity
 from app.modals.authorToNewsMediaEntity import AuthorToNewsMediaEntity
 from app.modals.newsAuthorEntity import NewsAuthorEntity
 from app.modals.newsMediaEntity import NewsMediaEntity
-from app.modals.newsQuestionEntity import NewsQuestionEntity
+from app.modals.newsQuestionEntity import NewsQuestionEntity, QuestionTypeEnum
 from app.modals.scrapeEntity import ScrapeFailure
 from app.modals.newsEntity import NewsEntity
 from sqlalchemy import ARRAY, TEXT, Integer, cast, column, func, or_, select, and_
@@ -117,8 +117,7 @@ async def store_all_articles(articles: List["NewsEntity"], db: AsyncSession):
         article.id = article_id
 
         # Insert related questions safely
-        print("article.questions_data:", getattr(article, "questions_data", None))
-        for q in getattr(article, "questions_data", []) or []:
+        for q in getattr(article, "true_false_not_given_questions_data", []) or []:
             if not isinstance(q, dict):
                 continue
             question_text = (q.get("question") or "").strip()
@@ -135,9 +134,47 @@ async def store_all_articles(articles: List["NewsEntity"], db: AsyncSession):
                     answer=answer,
                     explanation=explanation,
                     newsId=article.id,
+                    type=QuestionTypeEnum.TRUE_FALSE_NOT_GIVEN_QUESTION
                 )
             )
+        # Iterate over the correct attribute
+        print("article.misleading_techniques_questions_data:", getattr(article, "misleading_techniques_questions_data", None))
 
+        # Safely extract the question data
+        questions_data = getattr(article, "misleading_techniques_questions_data", [])
+
+        # Ensure it's a list
+        if not isinstance(questions_data, list):
+            print("⚠️ Expected a list but got:", type(questions_data))
+            questions_data = []
+
+        for q in questions_data:
+            if not isinstance(q, dict):
+                print("⚠️ Skipping non-dict question:", q)
+                continue
+
+            question_text = (q.get("question") or "").strip()
+            options = q.get("options") or {}
+            answer = q.get("answer") or ""
+            explanation = q.get("explanation") or ""
+
+            if not question_text:
+                continue
+
+            try:
+                question_entities.append(
+                    NewsQuestionEntity(
+                        id=uuid.uuid4(),
+                        question=question_text,
+                        options=dict(options),
+                        answer=answer,
+                        explanation=explanation,
+                        newsId=article.id,
+                        type=QuestionTypeEnum.MISGUIDING_TECHNIQUES_QUESTION  # ✅ Enum member
+                    )
+                )
+            except Exception as e:
+                print("❌ Failed to append question entity:", e)
         # Prepare News row (coalesce Nones defensively)
         translated_title = nz(
             traditionalChineseUtil.translateIntoTraditionalChinese(getattr(article, "title", None)),
