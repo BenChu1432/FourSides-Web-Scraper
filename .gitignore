@@ -7,3 +7,6 @@ myenv
 .serverless
 
 serverless.yml
+
+__pycache__/
+*.pyc

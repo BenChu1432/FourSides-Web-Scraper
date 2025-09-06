@@ -5,6 +5,7 @@ from app.modals.authorEntity import AuthorEntity
 from app.modals.authorToNewsMediaEntity import AuthorToNewsMediaEntity
 from app.modals.newsAuthorEntity import NewsAuthorEntity
 from app.modals.newsMediaEntity import NewsMediaEntity
+from app.modals.newsQuestionEntity import NewsQuestionEntity, QuestionTypeEnum
 from app.modals.scrapeEntity import ScrapeFailure
 from app.modals.newsEntity import NewsEntity
 from sqlalchemy import ARRAY, TEXT, Integer, cast, column, func, or_, select, and_
@@ -13,7 +14,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import update, literal_column
 from sqlalchemy import Table, Column, String, select
 from sqlalchemy import values as sa_values
-from typing import List
+from typing import List,Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.enums.enums import MediaNameEnum,OriginEnum  # make sure to import the Enum class
 from util import traditionalChineseUtil
@@ -66,57 +67,150 @@ async def get_filtered_news(filter, db):
     print("data:",data)
     return data
 
-async def store_all_articles(articles: List[NewsEntity], db):
+# Helpers
+
+def get_enum_value(val: Any) -> str:
+    """Return the underlying string for an Enum or the value itself if already a string.
+    Returns empty string for None to avoid NOT NULL violations where applicable.
+    """
+    if val is None:
+        return ""
+    return getattr(val, "value", val)
+
+def nz(val: Any, default: Any):
+    """Coalesce None to a default value."""
+    return default if val is None else val
+
+
+# Core operations
+
+async def store_all_articles(articles: List["NewsEntity"], db: AsyncSession):
     print("Storing articles...")
 
     values_to_insert = []
     news_to_insert = []
     author_links = []
     media_links = []
+    question_entities = []
+
+    # In-memory dedupe for link entities (avoid unique constraint races)
+    author_link_keys = set()  # (newsId, authorId)
+    media_link_keys = set()   # (authorId, newsMediaId)
 
     for article in articles:
-        if not article.url:
+        if not getattr(article, "url", None):
             continue
 
-        # 🔍 Skip if sews already exists
+        # Skip if news already exists
         existing_news = await db.execute(
             select(NewsEntity.id).where(NewsEntity.url == article.url)
         )
         if existing_news.scalars().first():
             continue
 
-        # ✅ Handle Enum safely
-        media_name_str = getattr(article.media_name, "value", article.media_name)
-        origin_str = getattr(article.origin, "value", article.origin)
+        # Normalize enum-like fields
+        media_name_str = get_enum_value(getattr(article, "media_name", None))
+        origin_str = get_enum_value(getattr(article, "origin", None))
 
-        # ✅ Generate id if missing
+        # Ensure article has an id
         article_id = getattr(article, "id", None) or uuid.uuid4()
-        article.id = article_id  # Ensure it's set for relationship use
+        article.id = article_id
 
-        # 📦 Prepare dict for bulk insert
+        # Insert related questions safely
+        for q in getattr(article, "true_false_not_given_questions_data", []) or []:
+            if not isinstance(q, dict):
+                continue
+            question_text = (q.get("question") or "").strip()
+            options = q.get("options") or {}
+            answer = q.get("answer") or ""
+            explanation = q.get("explanation") or ""
+            if not question_text:
+                continue  # skip malformed entry
+            question_entities.append(
+                NewsQuestionEntity(
+                    id=uuid.uuid4(),
+                    question=question_text,
+                    options=options,        # ensure dict/JSON-serializable
+                    answer=answer,
+                    explanation=explanation,
+                    newsId=article.id,
+                    type=QuestionTypeEnum.TRUE_FALSE_NOT_GIVEN_QUESTION
+                )
+            )
+        # Iterate over the correct attribute
+        print("article.misleading_techniques_questions_data:", getattr(article, "misleading_techniques_questions_data", None))
+
+        # Safely extract the question data
+        questions_data = getattr(article, "misleading_techniques_questions_data", [])
+
+        # Ensure it's a list
+        if not isinstance(questions_data, list):
+            print("⚠️ Expected a list but got:", type(questions_data))
+            questions_data = []
+
+        for q in questions_data:
+            if not isinstance(q, dict):
+                print("⚠️ Skipping non-dict question:", q)
+                continue
+
+            question_text = (q.get("question") or "").strip()
+            options = q.get("options") or {}
+            answer = q.get("answer") or ""
+            explanation = q.get("explanation") or ""
+
+            if not question_text:
+                continue
+
+            try:
+                question_entities.append(
+                    NewsQuestionEntity(
+                        id=uuid.uuid4(),
+                        question=question_text,
+                        options=dict(options),
+                        answer=answer,
+                        explanation=explanation,
+                        newsId=article.id,
+                        type=QuestionTypeEnum.MISGUIDING_TECHNIQUES_QUESTION  # ✅ Enum member
+                    )
+                )
+            except Exception as e:
+                print("❌ Failed to append question entity:", e)
+        # Prepare News row (coalesce Nones defensively)
+        translated_title = nz(
+            traditionalChineseUtil.translateIntoTraditionalChinese(getattr(article, "title", None)),
+            getattr(article, "title", "") or ""
+        )
+        translated_content = nz(
+            traditionalChineseUtil.translateIntoTraditionalChinese(getattr(article, "content", None)),
+            getattr(article, "content", "") or ""
+        )
+
         article_dict = {
             "id": article_id,
             "media_name": media_name_str,
             "url": article.url,
-            "title": traditionalChineseUtil.translateIntoTraditionalChinese(article.title),
+            "title": translated_title,
             "origin": origin_str,
-            "content": traditionalChineseUtil.translateIntoTraditionalChinese(article.content),
-            "content_en": article.content_en,
-            "published_at": article.published_at,
-            "authors": article.authors,
-            "images": article.images,
+            "content": translated_content,
+            "published_at": getattr(article, "published_at", None),
+            "authors": nz(getattr(article, "authors", None), []),
+            "images": nz(getattr(article, "images", None), []),
+            "refined_title": nz(getattr(article, "refined_title", None), ""),
+            "journalistic_merits": nz(getattr(article, "journalistic_merits", None), []),
+            "journalistic_demerits": nz(getattr(article, "journalistic_demerits", None), []),
+            "reporting_intention": nz(getattr(article, "reporting_intention", None), ""),
+            "reporting_style": nz(getattr(article, "reporting_style", None), ""),
         }
         values_to_insert.append(article_dict)
         news_to_insert.append(article)
 
-        # 🏷️ Prepare NewsMediaEntity (only once per article)
+        # Ensure NewsMedia row exists when a media name is present
         media = None
         if media_name_str:
             result = await db.execute(
                 select(NewsMediaEntity).where(NewsMediaEntity.name == media_name_str)
             )
             media = result.scalars().first()
-
             if not media:
                 media = NewsMediaEntity(
                     id=uuid.uuid4(),
@@ -126,31 +220,46 @@ async def store_all_articles(articles: List[NewsEntity], db):
                 db.add(media)
                 await db.flush()
 
-        # 👤 Link authors
-        if article.authors:
-            for author_names in article.authors:
-                authors = author_names.split('、')
-                for author_name in authors:
-                    traditional_chinese_name=traditionalChineseUtil.translateIntoTraditionalChinese(author_name)
-                    result = await db.execute(
-                        select(AuthorEntity).where(AuthorEntity.name == traditional_chinese_name)
+        # Link authors
+        for author_names in nz(getattr(article, "authors", None), []):
+            # Authors may be joined with '、'
+            for author_name in (author_names or "").split("、"):
+                author_name = (author_name or "").strip()
+                if not author_name:
+                    continue
+
+                traditional_chinese_name = (
+                    traditionalChineseUtil.translateIntoTraditionalChinese(author_name)
+                    or author_name
+                )
+
+                # Find or create Author
+                result = await db.execute(
+                    select(AuthorEntity).where(AuthorEntity.name == traditional_chinese_name)
+                )
+                author = result.scalars().first()
+                if not author:
+                    author = AuthorEntity(id=uuid.uuid4(), name=traditional_chinese_name)
+                    db.add(author)
+                    await db.flush()
+
+                # Link News <-> Author (dedupe)
+                key = (article.id, author.id)
+                if key not in author_link_keys:
+                    author_link_keys.add(key)
+                    author_links.append(
+                        NewsAuthorEntity(
+                            id=uuid.uuid4(),
+                            newsId=article.id,
+                            authorId=author.id
+                        )
                     )
-                    author = result.scalars().first()
 
-                    if not author:
-                        author = AuthorEntity(id=uuid.uuid4(), name=traditional_chinese_name)
-                        db.add(author)
-                        await db.flush()
-
-                    # Link News <-> Author
-                    author_links.append(NewsAuthorEntity(
-                        id=uuid.uuid4(),
-                        newsId=article.id,
-                        authorId=author.id
-                    ))
-
-                    # Link Author <-> NewsMedia
-                    if media:
+                # Link Author <-> NewsMedia (dedupe)
+                if media:
+                    mkey = (author.id, media.id)
+                    if mkey not in media_link_keys:
+                        # Only create link if not existing
                         result = await db.execute(
                             select(AuthorToNewsMediaEntity).where(
                                 AuthorToNewsMediaEntity.authorId == author.id,
@@ -158,81 +267,35 @@ async def store_all_articles(articles: List[NewsEntity], db):
                             )
                         )
                         if not result.scalars().first():
-                            media_links.append(AuthorToNewsMediaEntity(
-                                id=uuid.uuid4(),
-                                authorId=author.id,
-                                newsMediaId=media.id
-                            ))
+                            media_link_keys.add(mkey)
+                            media_links.append(
+                                AuthorToNewsMediaEntity(
+                                    id=uuid.uuid4(),
+                                    authorId=author.id,
+                                    newsMediaId=media.id
+                                )
+                            )
 
-    # 🧾 Bulk insert News
+    # Bulk insert News with conflict handling by unique url
     if values_to_insert:
-        stmt = insert(NewsEntity).values(values_to_insert)\
+        stmt = (
+            insert(NewsEntity)
+            .values(values_to_insert)
             .on_conflict_do_nothing(index_elements=["url"])
+        )
         await db.execute(stmt)
 
-    # 🧾 Insert NewsAuthorEntity
+    # Insert question entities
+    for q in question_entities:
+        db.add(q)
+
+    # Insert NewsAuthorEntity
     for link in author_links:
         db.add(link)
 
-    # 🧾 Insert AuthorToNewsMediaEntity
+    # Insert AuthorToNewsMediaEntity
     for link in media_links:
         db.add(link)
 
     await db.commit()
-    return news_to_insert  # ✅ Return list, not None or []
-
-
-async def update_all_articles(articles: List[NewsEntity], db: AsyncSession):
-    for article in articles:
-        print("article.url:",article.url)
-        stmt = (
-            update(NewsEntity)
-            .where(NewsEntity.url == article.url)
-            .values({
-                "title": traditionalChineseUtil.safeTranslateIntoTraditionalChinese(article.title),
-                "content": traditionalChineseUtil.safeTranslateIntoTraditionalChinese(article.content),
-                "content_en": article.content_en,
-                "published_at": article.published_at,
-                "authors": article.authors,
-                "images": article.images,
-                "origin": article.origin,
-            })
-        )
-        await db.execute(stmt)
-    await db.commit()
-
-async def get_news(db, news_id):
-    result = await db.execute(select(NewsEntity).where(NewsEntity.id == news_id))
-    return result.scalar_one_or_none()
-
-
-async def get_scraping_existent_news_urls_by_media(news_media,db):
-   result=await db.execute(select(NewsEntity.url).where(ScrapeFailure.media_name == news_media))
-   urls = result.scalars().all()
-   return urls
-
-async def get_scraping_failed_news_urls_by_media(news_media,db):
-   result=await db.execute(select(ScrapeFailure.url).where(ScrapeFailure.media_name == news_media))
-   urls = result.scalars().all()
-   return urls
-
-async def get_urls_by_news_media_where_xxx_is_null_or_the_news_is_native(news_media: str, filter: str, db):
-    query = select(NewsEntity.url).where(NewsEntity.media_name == news_media)
-
-    if filter == "author":
-        query = query.where(
-            func.coalesce(func.array_length(NewsEntity.authors, 1), 0) == 0,
-        )
-    elif filter == "published_at":
-        query = query.where(NewsEntity.published_at == None)
-    elif filter == "title":
-        query = query.where(NewsEntity.title == None)
-    elif filter == "native":
-        query = query.where(NewsEntity.origin == "native")
-
-    result = await db.execute(query)
-    print("result:",result)
-    data = result.scalars().all()
-    urls = list(data)  # or just return data directly
-    print("urls:",urls)
-    return urls
+    return news_to_insert

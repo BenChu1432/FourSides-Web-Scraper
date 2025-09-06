@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Optional
 from zoneinfo import ZoneInfo
 import dateparser
 
@@ -7,10 +8,10 @@ def _parse_to_utc(
     date_str: str,
     *,
     languages=None,
-    date_order: str | None = None,
-    default_tz: str = 'UTC',
-    relative_base: datetime | None = None,
-    prefer_dates_from: str | None = None,
+    date_order: Optional[str] = None,
+    default_tz: Optional[str] = 'UTC',
+    relative_base: Optional[datetime] = None,
+    prefer_dates_from: Optional[str] = None,
 ):
     """
     Helper to parse any date string as a timezone-aware datetime and
@@ -34,9 +35,9 @@ def _parse_to_utc(
     return dt
 
 
-def standardDateToTimestamp(date_str: str) -> int:
+def standardTaipeiDateToTimestamp(date_str: str) -> int:
     # Generic parser: assume UTC if no tz in the string
-    dt = _parse_to_utc(date_str, default_tz='UTC')
+    dt = _parse_to_utc(date_str, default_tz='Asia/Taipei')
     return int(dt.timestamp())
 
 

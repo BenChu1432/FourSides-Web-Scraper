@@ -1,8 +1,9 @@
 import os
 import re
-from typing import Dict, Optional
-from urllib.parse import urlparse
+from typing import Dict, Literal, Optional, TypedDict
+from urllib.parse import urljoin, urlparse
 import concurrent
+import feedparser
 import requests
 from bs4 import BeautifulSoup
 from abc import ABC, abstractmethod
@@ -20,7 +21,7 @@ from app.dto.dto import FetchUrlsResult, ParseArticleResult
 from app.enums.enums import ErrorTypeEnum
 from app.errors.NewsParsingError import UnmappedMediaNameError
 from util import chineseMediaTranslationUtil
-from util.timeUtil import HKEJDateToTimestamp, IntiumChineseDateToTimestamp, NowTVDateToTimestamp, RTHKChineseDateToTimestamp, SCMPDateToTimestamp, SingTaoDailyChineseDateToTimestamp, TheCourtNewsDateToTimestamp, standardChineseDatetoTimestamp, standardDateToTimestamp,YahooNewsToTimestamp
+from util.timeUtil import HKEJDateToTimestamp, IntiumChineseDateToTimestamp, NowTVDateToTimestamp, RTHKChineseDateToTimestamp, SCMPDateToTimestamp, SingTaoDailyChineseDateToTimestamp, TheCourtNewsDateToTimestamp, standardChineseDatetoTimestamp, standardTaipeiDateToTimestamp,YahooNewsToTimestamp
 import concurrent.futures
 import time
 import platform
@@ -31,16 +32,25 @@ from webdriver_manager.chrome import ChromeDriverManager
 # Constants
 WAITING_TIME_FOR_JS_TO_FETCH_DATA=2
 
+Degree = Literal["low", "moderate", "high"]
+
+class AssessmentItem(TypedDict):
+    description: str
+    degree: Degree
 
 class News(ABC):
     media_name: Optional[str]
     title: Optional[str]
     content: Optional[str]
-    content_en: Optional[str]
     published_at: Optional[int]
     authors: List[str]
     images: List[str]
     origin: Optional[str]
+    refined_title: Optional[str]
+    reporting_style: List[str]
+    reporting_intention: List[str]
+    journalistic_demerits: Dict[str, AssessmentItem]
+    journalistic_merits: Dict[str, AssessmentItem]
     max_workers: int
     max_pages: int
 
@@ -51,7 +61,6 @@ class News(ABC):
         self.max_pages=1
         self.title = None
         self.content = None
-        self.content_en= None
         self.published_at=None
         self.origin="native"
         self.authors=[]
@@ -78,6 +87,13 @@ class News(ABC):
 
         driver = webdriver.Chrome(options=options)
         return driver
+    
+    # def get_chrom_driver_with_error(self):
+    #     try:
+    #         self.get_chrome_driver()
+    #     except Exception as e:
+            
+
 
     @abstractmethod
     def _get_article_urls(self):
@@ -93,6 +109,8 @@ class News(ABC):
         urls = []
         try:
             urls = self._get_article_urls()
+            # Limit to 30 urls for web scraping in each run
+            urls=urls[:30]
             if not urls:
                 errors.append({
                     "failure_type": ErrorTypeEnum.ZERO_URLS_FETCHED,
@@ -191,7 +209,7 @@ class HongKongFreePress(News):
         self.authors.append(soup.find("div", class_="entry-subhead").find("span",class_="author vcard").get_text(strip=True))
         print("self.authors:", self.authors)
         published_at=soup.find("span", class_="posted-on").find("time").get_text(strip=True)
-        self.published_at=standardDateToTimestamp(published_at)
+        self.published_at=standardTaipeiDateToTimestamp(published_at)
         print("self.published_at:", self.published_at)
 
 
@@ -216,7 +234,7 @@ class MingPaoNews(News):
         # Extract published date
         date_div = soup.find("div", itemprop="datePublished", class_="date")
         if date_div:
-            self.published_at = standardDateToTimestamp(date_div.get_text(strip=True))
+            self.published_at = standardTaipeiDateToTimestamp(date_div.get_text(strip=True))
         else:
             self.published_at = None
         
@@ -604,7 +622,7 @@ class WenWeiPo(News):
         date_div = soup.find("time", class_="publish-date").get_text(strip=True)
         if date_div:
             print("date_div:", date_div)
-            self.published_at = standardDateToTimestamp(date_div)
+            self.published_at = standardTaipeiDateToTimestamp(date_div)
         else:
             self.published_at = None
         print("self.published_at:", self.published_at)
@@ -744,7 +762,7 @@ class HK01(News):
 
             # Extract published date
             date = soup.find("div", {"data-testid": "article-publish-info"}).find_all("time")[0].get_text(strip=True)
-            self.published_at=standardDateToTimestamp(date)
+            self.published_at=standardTaipeiDateToTimestamp(date)
 
             # Extract authors (no authors)
             self.authors = []
@@ -824,7 +842,7 @@ class HKCD(News):
         date=soup.find("div",class_="newsDetailBox").find("div", class_="msg").find_all("span")[1].get_text(strip=True)
         if date:
             print("date:", date)
-            self.published_at = standardDateToTimestamp(date)
+            self.published_at = standardTaipeiDateToTimestamp(date)
         print("self.published_at:", self.published_at)
 
         # Extract authors
@@ -877,7 +895,7 @@ class TheEpochTimes(News):
             print("date_div:", date_div)
             date=soup.find("div",id="artbody").find("time").get_text(strip=True).replace("更新:","").strip()
         print("date:", date)
-        self.published_at = standardDateToTimestamp(date)
+        self.published_at = standardTaipeiDateToTimestamp(date)
         print("self.published_at:", self.published_at)
 
         # Extract authors
@@ -1009,7 +1027,7 @@ class ChineseBBC(News):
         date_time=soup.find("time",class_="bbc-xvuncs e1mklfmt0")
         if date_time:
             date=date_time["datetime"]
-            self.published_at=standardDateToTimestamp(date)
+            self.published_at=standardTaipeiDateToTimestamp(date)
 
         # Extract images
         main=soup.find("main",{"role":"main"})
@@ -1032,7 +1050,7 @@ class VOC(News):
         
     def _get_article_urls(self):
         latest_news_url = "https://www.voachinese.com/z/1739"
-        base_url="https://www.voachinese.com/"
+        base_url="https://www.voachinese.com"
         print(f"Loading page: {latest_news_url}")
 
         all_urls=[]
@@ -1094,7 +1112,7 @@ class VOC(News):
         publication_date=soup.find("time",{"pubdate":"pubdate"})
         if publication_date:
             date=publication_date.get_text()
-            self.published_at=standardDateToTimestamp(date)
+            self.published_at=standardTaipeiDateToTimestamp(date)
 
         # Extract author
         author_link=soup.find("a",class_="links__item-link")
@@ -1168,7 +1186,7 @@ class ICable(News):
         print(soup.find("div", class_="post-meta single-post-meta"))
         date = soup.find("div", class_="post-meta single-post-meta").find_all("li")[1].get_text(strip=True)
         print("date:", date)
-        self.published_at = standardDateToTimestamp(date)
+        self.published_at = standardTaipeiDateToTimestamp(date)
 
 class HKGovernmentNews(News):
     def parse_article(self, soup):
@@ -1187,7 +1205,7 @@ class HKGovernmentNews(News):
         
         # Extract date
         date=soup.find("span", class_="news-date").get_text(strip=True)
-        self.published_at=standardDateToTimestamp(date)
+        self.published_at=standardTaipeiDateToTimestamp(date)
 
         # Extract image
         print(soup.find("div", class_="news-block news-block-3by2"))
@@ -1241,7 +1259,7 @@ class OrangeNews(News):
 
             # extract published date
             date=soup.find("div", class_="info").find("span", class_="time fr").get_text(strip=True)
-            self.published_at=standardDateToTimestamp(date)
+            self.published_at=standardTaipeiDateToTimestamp(date)
             print("self.published_at:",self.published_at)
 
             # extract authors
@@ -1510,7 +1528,7 @@ class TheWitness(News):
                 if len(lists) >= 2:
                     date = lists[0].get_text(strip=True) + " " + lists[1].get_text(strip=True)
                     print("date:", date)
-                    self.published_at = standardDateToTimestamp(date)
+                    self.published_at = standardTaipeiDateToTimestamp(date)
                     print("self.published_at:", self.published_at)
 
         except Exception as e:
@@ -1773,10 +1791,10 @@ class UnitedDailyNews(News):
             if element:
                 if "process" in selector:
                     date = selector["process"](element)
-                    self.published_at = standardDateToTimestamp(date)
+                    self.published_at = standardTaipeiDateToTimestamp(date)
                 else: 
                     date=element.get_text(strip=True)
-                    self.published_at = standardDateToTimestamp(date)
+                    self.published_at = standardTaipeiDateToTimestamp(date)
 
         print("self.published_at:", self.published_at)
 
@@ -1895,7 +1913,7 @@ class LibertyTimesNet(News):
             element=soup.select_one(selector["selector"])
             if element:
                 date=element.get_text()
-                self.published_at=standardDateToTimestamp(date)
+                self.published_at=standardTaipeiDateToTimestamp(date)
                 break
         # print("self.published_at:",self.published_at)
 
@@ -2090,7 +2108,7 @@ class ChinaTimes(News):
                 if time_tag and time_tag.has_attr('datetime'):
                     date = time_tag['datetime']  # Correct way to access the attribute
                     print("date:", date)
-                    self.published_at = standardDateToTimestamp(date)
+                    self.published_at = standardTaipeiDateToTimestamp(date)
                 else:
                     print("No datetime attribute found in time tag")
             else:
@@ -2185,7 +2203,7 @@ class CNA(News):
             element=soup.select_one(selector["selector"])
             if element:
                 date=element.get_text()
-                self.published_at=standardDateToTimestamp(date)
+                self.published_at=standardTaipeiDateToTimestamp(date)
                 break
         # Additional extraction from <p class="article-time"> inside <div class="article-info">
         try:
@@ -2195,7 +2213,7 @@ class CNA(News):
             if article_time_tag:
                 datetime_str = article_time_tag.get_text(strip=True)
                 print("Extracted datetime from article-time:", datetime_str)
-                self.published_at = standardDateToTimestamp(datetime_str)
+                self.published_at = standardTaipeiDateToTimestamp(datetime_str)
         except Exception as e:
             print("Error extracting from <p class='article-time'>:", e)
 
@@ -2318,7 +2336,7 @@ class PTSNews(News):
             print("element:",element)
             if element:
                 date=element.get_text()
-                self.published_at=standardDateToTimestamp(date)
+                self.published_at=standardTaipeiDateToTimestamp(date)
                 break
         print("self.published_at:",self.published_at)
 
@@ -2462,7 +2480,7 @@ class CTEE(News):
                 if element:
                     lists=element.find_all("li")
                     date=lists[0].get_text()+lists[1].get_text()
-                    self.published_at=standardDateToTimestamp(date)
+                    self.published_at=standardTaipeiDateToTimestamp(date)
                     break
             print("self.published_at:",self.published_at)
 
@@ -2615,7 +2633,7 @@ class MyPeopleVol(News):
             element=soup.select_one(selector["selector"])
             if element:
                 date=element.get_text()
-                self.published_at=standardDateToTimestamp(date)
+                self.published_at=standardTaipeiDateToTimestamp(date)
                 break
         print("self.published_at:",self.published_at)
 
@@ -2768,7 +2786,7 @@ class TaiwanTimes(News):
             other_info_elements = soup.find_all("div", class_="otherinfo normal-size main-text-color")
             if len(other_info_elements) > 0:
                 date_text = other_info_elements[0].get_text()
-                self.published_at = standardDateToTimestamp(date_text)
+                self.published_at = standardTaipeiDateToTimestamp(date_text)
             else:
                 print("No date element found")
 
@@ -2865,7 +2883,7 @@ class ChinaDailyNews(News):
         if date_span:
             date=date_span.get_text()
             if date:
-                self.published_at=standardDateToTimestamp(date)
+                self.published_at=standardTaipeiDateToTimestamp(date)
         
         # Extract images
         image_selectors=[
@@ -3021,7 +3039,7 @@ class SETN(News):
 
                 if date_text:
                     try:
-                        self.published_at = standardDateToTimestamp(date_text)
+                        self.published_at = standardTaipeiDateToTimestamp(date_text)
                         break  # ✅ Exit loop once a valid date is found
                     except Exception as e:
                         print(f"⚠️ Failed to parse date from '{date_text}':", e)
@@ -3138,7 +3156,7 @@ class NextAppleNews(News):
         article=soup.find("div",class_="infScroll")
         if article:
             date=article.find("time").get_text()
-            self.published_at=standardDateToTimestamp(date)
+            self.published_at=standardTaipeiDateToTimestamp(date)
 
         # Extract author
         info_a=soup.find_all("a",style="color: #0275d8;")
@@ -3228,7 +3246,7 @@ class TTV(News):
         date_time=soup.find("li",class_="date time")
         if date_time:
             date=date_time.get_text()
-            self.published_at=standardDateToTimestamp(date)
+            self.published_at=standardTaipeiDateToTimestamp(date)
 
         # Extract author
         content_div=soup.find("div",id="newscontent")
@@ -3444,7 +3462,7 @@ class MirrorMedia(News):
                         if "發布時間" in line and i + 1 < len(lines):
                             date = lines[i + 1].strip()
                             print("Extracted publish date:", date)
-                            self.published_at = standardDateToTimestamp(date)
+                            self.published_at = standardTaipeiDateToTimestamp(date)
                             break
                     break
             # Additional extraction from <div class="external-normal-style__Date-sc-e92c822f-5 ...">
@@ -3455,7 +3473,7 @@ class MirrorMedia(News):
                 if date_div:
                     datetime_str = date_div.get_text(strip=True).split("臺北時間")[0].strip()
                     print("Extracted datetime text from date_div:", datetime_str)
-                    self.published_at = standardDateToTimestamp(datetime_str)
+                    self.published_at = standardTaipeiDateToTimestamp(datetime_str)
             except Exception as e:
                 print("Error extracting from external-normal-style__Date div:", e)
 
@@ -3631,7 +3649,7 @@ class NowNews(News):
         if div_element:
             date=div_element.get_text()
             print("date:",date)
-            self.published_at=standardDateToTimestamp(date)
+            self.published_at=standardTaipeiDateToTimestamp(date)
 
         # Extract author
         author_a=soup.find("a",{"data-sec":"reporter"})
@@ -3735,7 +3753,7 @@ class StormMedia(News):
         if div_element:
             date=div_element.get_text()
             print("date:",date)
-            self.published_at=standardDateToTimestamp(date)
+            self.published_at=standardTaipeiDateToTimestamp(date)
 
         # Additional extraction from nested <div data-v-xxxx> inside a date container
         try:
@@ -3749,7 +3767,7 @@ class StormMedia(News):
                 if inner_div:
                     datetime_str = inner_div.get_text(strip=True)
                     print("Extracted datetime from inner_div:", datetime_str)
-                    self.published_at = standardDateToTimestamp(datetime_str)
+                    self.published_at = standardTaipeiDateToTimestamp(datetime_str)
         except Exception as e:
             print("Error extracting from nested divs:", e)
 
@@ -3770,7 +3788,6 @@ class TVBS(News):
         self.max_pages=1
 
     def _get_article_urls(self):
-        max_pages=self.max_pages
         latest_news_url = "https://news.tvbs.com.tw/realtime"
         base_url="https://news.tvbs.com.tw"
         print(f"Loading page: {latest_news_url}")
@@ -3838,7 +3855,7 @@ class TVBS(News):
             if len(text_parts) > 1:
                 published_date = text_parts[1].split()  # Gets "2025/07/06"
                 published_at=published_date[0]+" "+published_date[1]
-                self.published_at=standardDateToTimestamp(published_at)
+                self.published_at=standardTaipeiDateToTimestamp(published_at)
             
             print("self.authors:", self.authors)
             print("Published At:", published_at)
@@ -3935,13 +3952,13 @@ class EBCNews(News):
         date_div=soup.find("div",class_="article_date")
         if date_div:
             date=date_div.get_text()
-            self.published_at=standardDateToTimestamp(date)
+            self.published_at=standardTaipeiDateToTimestamp(date)
         if date_div is None:
             date_div=soup.find("div",class_="article_info_date")
             print("date_div:",date_div)
             if date_div:
                 date=" ".join(p.get_text(strip=True) for p in date_div.find_all("div"))
-                self.published_at=standardDateToTimestamp(date)
+                self.published_at=standardTaipeiDateToTimestamp(date)
             
         # Extract images
         content_div=soup.find("div",class_="article_container")
@@ -4052,7 +4069,6 @@ class ETtoday(News):
         for selector in authors_selectors:
             element = soup.select_one(selector["selector"])
             isOutLoopReadyToBreak=False
-            print("element:",element)
             if element:
                 for p in element.find_all('p'):
                     text = p.get_text()
@@ -4074,15 +4090,18 @@ class ETtoday(News):
             element = soup.select_one(selector["selector"])
             if element:
                     date=element.get_text(strip=True)
-                    self.published_at = standardDateToTimestamp(date)
+                    print("date:",date)
+                    self.published_at = standardTaipeiDateToTimestamp(date)
         # Additional extraction from <time> tag with 'datetime' attribute
         try:
             published_time_tag = soup.find("time", itemprop="datePublished")
             print("Found published_time_tag:", published_time_tag)
-            if published_time_tag and published_time_tag.has_attr("datetime"):
-                datetime_str = published_time_tag["datetime"]
-                print("Extracted datetime attribute:", datetime_str)
-                self.published_at = standardDateToTimestamp(datetime_str)
+            if published_time_tag:
+                datetime_str = published_time_tag.get("datetime", "").strip()
+                if not datetime_str or len(datetime_str) <= 5:
+                    datetime_str = published_time_tag.get_text(strip=True)
+                print("Extracted datetime:", datetime_str)
+                self.published_at = standardTaipeiDateToTimestamp(datetime_str)
         except Exception as e:
             print("Error extracting from <time itemprop='datePublished'>:", e)
 
@@ -4187,7 +4206,7 @@ class NewTalk(News):
             text=p_element.find("span").get_text()
             print("text:",text)
             date=text.replace("發布","").strip()
-            self.published_at=standardDateToTimestamp(date)
+            self.published_at=standardTaipeiDateToTimestamp(date)
 
         # Extract author
         author_a=soup.find("a",class_="author")
@@ -4320,10 +4339,10 @@ class CTINews(News):
                     datetime_str = time_text.replace("發布:", "").strip()
                     print("published datetime:", datetime_str)
                     # Optionally, convert to timestamp
-                    self.published_at = standardDateToTimestamp(datetime_str)
+                    self.published_at = standardTaipeiDateToTimestamp(datetime_str)
         except Exception as e:
             print("Error extracting time:", e)
-            self.published_at=standardDateToTimestamp(date)
+            self.published_at=standardTaipeiDateToTimestamp(date)
             self.authors.append(author)
 
 
@@ -4450,7 +4469,7 @@ class FTV(News):
             date_span=soup.find("span",class_="date")
             if date_span:
                 date=date_span.get_text().replace("發佈時間：","").strip()
-                self.published_at=standardDateToTimestamp(date)
+                self.published_at=standardTaipeiDateToTimestamp(date)
                 print("date_span:",date_span)
 
             # Extract images
@@ -4672,7 +4691,7 @@ class CTWant(News):
         if time:
             date=time.get_text()
             if date:
-                self.published_at=standardDateToTimestamp(date)
+                self.published_at=standardTaipeiDateToTimestamp(date)
 
         # Extract images
         content_div=soup.find("div",class_="p-article__img-box")
@@ -4796,7 +4815,7 @@ class TSSDNews(News):
                 if date_match:
                     date_str = date_match.group(0)
                     print("Date:", date_str)
-                    self.published_at=standardDateToTimestamp(date_str)
+                    self.published_at=standardTaipeiDateToTimestamp(date_str)
                 else:
                     date_str = None
                     print("No date found")
@@ -4899,7 +4918,7 @@ class CTS(News):
         if time:
             date=time.get_text()
             if date:
-                self.published_at=standardDateToTimestamp(date)
+                self.published_at=standardTaipeiDateToTimestamp(date)
 
         # Extract images
         content_div=soup.find("div",class_="artical-img")
@@ -5060,3 +5079,318 @@ class YahooNews(News):
             self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
         else:
             self.content = "No content found"
+
+class MyGoPenNews(News):
+    def __init__(self, url=None):
+        super().__init__(url)
+        self.media_name = "MyGoPenNews"
+        self.feed_url = "https://www.mygopen.com/feeds/posts/default?alt=rss"
+        self.max_articles = 10
+
+    def _get_article_urls(self):
+        print(f"🌐 解析 RSS：{self.feed_url}")
+        feed = feedparser.parse(self.feed_url)
+
+        if feed.bozo:
+            print("❌ RSS 有錯誤：", feed.bozo_exception)
+            return []
+
+        print(f"✅ 共抓到 {len(feed.entries)} 篇文章")
+        urls = []
+
+        for entry in feed.entries[:self.max_articles]:
+            if "link" in entry:
+                urls.append(entry.link)
+
+        print(f"🎯 總共擷取 {len(urls)} 筆文章連結")
+        return urls
+
+    def parse_article(self, soup):
+        # 標題
+        self.title = soup.title.string.strip() if soup.title else "Missing Title"
+
+        # 摘要
+        meta_desc = soup.find("meta", attrs={"name": "description"})
+        self.summary = meta_desc["content"].strip() if meta_desc and meta_desc.has_attr("content") else "Missing Summary"
+
+        # 發布日期
+        pub_date_tag = soup.find("abbr", class_="published")
+        self.published_at = pub_date_tag.get("title") if pub_date_tag else None
+
+        # 查核記者（MyGoPen 通常沒有）
+        self.authors = []
+
+        # 內容
+        content_div = soup.find("div", class_="post-body")
+        if content_div:
+            self.content = "\n".join(p.get_text(strip=True) for p in content_div.find_all("p"))
+        else:
+            self.content = "Missing Content"
+
+        # 圖片
+        self.images = []
+        for img in soup.find_all("img"):
+            src = img.get("src")
+            if src and src.endswith(".jpg"):
+                self.images.append(src)
+
+class TFCNews:
+    def __init__(self, url=None):
+        self.url = url
+        self.media_name = "TFCNews"
+        self.max_pages = 2
+        self.origin = "native"
+
+    def _get_article_urls(self):
+        driver = self.get_chrome_driver()
+        article_urls = []
+
+        for page in range(1, self.max_pages + 1):
+            url = f"https://tfc-taiwan.org.tw/fact-check-reports-all/?pg={page}"
+            print(f"🔗 開啟第 {page} 頁: {url}")
+            driver.get(url)
+
+            try:
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, "li.kb-query-item"))
+                )
+                articles = driver.find_elements(By.CSS_SELECTOR, "li.kb-query-item")
+                print(f"✅ 找到 {len(articles)} 篇文章")
+
+                for article in articles:
+                    try:
+                        a_tag = article.find_element(By.TAG_NAME, "a")
+                        href = a_tag.get_attribute("href")
+                        if href and href not in article_urls:
+                            article_urls.append(href)
+                    except Exception as e:
+                        print("⚠️ 找 <a> 錯誤：", e)
+
+            except Exception as e:
+                print(f"❌ 頁面載入失敗: {e}")
+
+            time.sleep(1.2)
+
+        driver.quit()
+        print(f"\n📦 共蒐集 {len(article_urls)} 筆文章網址")
+        return article_urls
+
+    def parse_article(self):
+        """
+        Crawl all article URLs, parse each article, print a summary,
+        and return a list of parsed article dictionaries.
+
+        Side effects:
+        - Uses Selenium driver
+        - Prints summaries to stdout
+        """
+        results = []
+        urls = self._get_article_urls()
+        driver = self.get_chrome_driver()
+
+        print("\n📖 每篇文章摘要：")
+        for url in urls:
+            try:
+                driver.get(url)
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "article"))
+                )
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                self.url = url  # for resolving image URLs
+
+                # ===== 解析開始 =====
+
+                # 標題（先找 <h1>，找不到再 fallback 到 <strong>）
+                title_tag = soup.find("h1")
+                if title_tag and title_tag.get_text(strip=True):
+                    title = title_tag.get_text(strip=True)
+                else:
+                    title = "Missing Title"
+                    strong_tags = soup.find_all("strong")
+                    for tag in strong_tags:
+                        text = tag.get_text(strip=True)
+                        if text and len(text) > 10:
+                            self.title = text
+                            break
+
+                # 查核記者
+                authors = []
+                text_all = soup.get_text()
+                match = re.search(r"查核記者[:：]?\s*([^\s，、\n]+)", text_all)
+                if match:
+                    self.authors.append(match.group(1))
+
+                # 正文內容
+                content_div = soup.find("div", class_=lambda c: c and ("entry-content" in c or "wp-block" in c))
+                if content_div:
+                    paragraphs = content_div.find_all(["p", "li"])
+                    self.content = "\n".join(p.get_text(strip=True) for p in paragraphs if p.get_text(strip=True))
+
+                # 圖片擷取（.jpg）
+                for img in soup.find_all("img"):
+                    image_url = img.get("src")
+                    if not image_url and img.get("srcset"):
+                        candidates = [s.strip().split(" ")[0] for s in img["srcset"].split(",")]
+                        if candidates:
+                            image_url = candidates[-1]
+                    if image_url and ".jpg" in image_url:
+                        full_url = urljoin(self.url, image_url)
+                        self.images.append(full_url)
+
+            except Exception as e:
+                print(f"❌ 讀取失敗：{url}，錯誤：{e}")
+
+        driver.quit()
+    
+
+class FactcheckLab(News):
+    def __init__(self, url=None):
+        super().__init__(url)  # Call parent constructor
+        self.media_name = "FactcheckLab"
+        self.max_pages = 1
+        self.max_workers = 5
+
+    def _get_article_urls(self):
+        max_pages = self.max_pages
+
+        def fetch_page_articles(page: int):
+            # Factcheck Lab 首頁會載入最新文章，無明確分頁參數
+            # 若未來有分頁，可在此擴充
+            page_urls = []
+            base_url = "https://www.factchecklab.org"
+            print(f"Loading page: {base_url}")
+
+            # 先嘗試使用 requests（站點為靜態可抓）
+            try:
+                res = requests.get(base_url, timeout=15)
+                res.raise_for_status()
+                soup = BeautifulSoup(res.text, "html.parser")
+                articles = soup.select("a.post-card-image-link")
+
+                for a_tag in articles:
+                    href = a_tag.get("href")
+                    if href:
+                        full_url = urljoin(base_url, href)
+                        page_urls.append(full_url)
+
+                print(f"Found {len(page_urls)} articles on page {page}")
+                return page_urls
+
+            except Exception as e:
+                print(f"Requests failed, fallback to Selenium for page {page}: {e}")
+
+                # 若需要 JS 執行再回退到 Selenium
+                driver = self.get_chrome_driver()
+                try:
+                    driver.get(base_url)
+                    time.sleep(2)  # wait for basic render
+
+                    soup = BeautifulSoup(driver.page_source, "html.parser")
+                    articles = soup.select("a.post-card-image-link")
+
+                    for a_tag in articles:
+                        href = a_tag.get("href")
+                        if href:
+                            full_url = urljoin(base_url, href)
+                            page_urls.append(full_url)
+
+                    # 若有需要滾動載入，可在此加入滾動邏輯（目前站點不需要）
+                    print(f"Found {len(page_urls)} articles on page {page}")
+                    return page_urls
+                finally:
+                    driver.quit()
+
+        all_urls = []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = [executor.submit(fetch_page_articles, page) for page in range(1, max_pages + 1)]
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    urls = future.result()
+                    all_urls.extend(urls)
+                except Exception as e:
+                    print(f"Error fetching page: {e}")
+
+        # 去重
+        all_urls = list(dict.fromkeys(all_urls))
+        return all_urls
+
+    def parse_article(self, soup: BeautifulSoup):
+        base_url = "https://www.factchecklab.org"
+        # Title
+        h1 = soup.find("h1")
+        self.title = h1.get_text(strip=True) if h1 else "No title found"
+
+        # Publish date
+        # <time class="byline-meta-date" datetime="...">
+        time_tag = soup.find("time", class_="byline-meta-date")
+        if time_tag and time_tag.has_attr("datetime"):
+            date_str = time_tag["datetime"]
+            # 若父類別提供 ISO8601 轉 timestamp 工具
+            try:
+                self.published_at = standardTaipeiDateToTimestamp(date_str)
+            except Exception:
+                # 若工具不可用，可退回原字串
+                self.published_at = date_str
+
+        # Author(s) — 網站未必固定顯示作者，若有可擴充選擇器
+        # 嘗試幾種常見位置
+        author_candidates = []
+        # 例：class 可能為 byline 或作者連結
+        for sel in ["a.post-card-author", ".byline-author a", ".byline-author", "a.author", ".author"]:
+            for tag in soup.select(sel):
+                txt = tag.get_text(strip=True)
+                if txt:
+                    author_candidates.append(txt)
+        # 去重後加入
+        for author in list(dict.fromkeys(author_candidates)):
+            self.authors.append(author)
+
+        # First image（封面或首圖）
+        first_img_url = None
+        # 先找文章內第一個 <figure> 下的 <img>
+        first_figure = soup.find("figure")
+        if first_figure:
+            img_tag = first_figure.find("img")
+            if img_tag and img_tag.has_attr("src"):
+                first_img_url = urljoin(self.url or base_url, img_tag["src"])
+        # 若未找到，嘗試 og:image
+        if not first_img_url:
+            og_img = soup.find("meta", property="og:image")
+            if og_img and og_img.get("content"):
+                first_img_url = urljoin(self.url or base_url, og_img["content"])
+        if first_img_url:
+            self.images.append(first_img_url)
+
+        # Content
+        # 文章本體大多在 <article> 中
+        content_div = soup.find("article")
+        if content_div:
+            paragraphs = content_div.find_all("p")
+            content_texts = []
+            for p in paragraphs:
+                txt = p.get_text(strip=True)
+                if txt:
+                    content_texts.append(txt)
+            self.content = "\n".join(content_texts)
+
+        # News source / origin
+        # Factcheck Lab 多為自家出品，若需要對外媒做 mapping，可在此擴充
+        # 例：若文末有「來源」段落，可嘗試解析：
+        source_text = None
+        for sel in ["p", "li"]:
+            for tag in soup.select(sel):
+                txt = tag.get_text(strip=True)
+                if txt and (txt.startswith("來源：") or txt.startswith("資料來源：")):
+                    source_text = txt.replace("來源：", "").replace("資料來源：", "").strip()
+                    break
+            if source_text:
+                break
+
+        if source_text:
+            try:
+                self.origin = chineseMediaTranslationUtil.map_chinese_media_to_enum(source_text)
+            except ValueError as e:
+                # 若你的系統需要嚴格映射，則拋出；否則可忽略或記錄
+                # raise UnmappedMediaNameError(source_text) from e
+                pass
