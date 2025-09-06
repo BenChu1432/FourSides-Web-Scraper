@@ -1939,37 +1939,53 @@ class LibertyTimesNet(News):
                 break
 
         # Extract authors (no authors)
-        authors_selectors=[
-             {"selector": "div.whitecon.article[data-page='1']"}, 
-             {"selector": "div.whitecon.article[itemprop='articleBody'] .text.boxText"},
-             {"selector":"div[data-desc='內文'] div.text"}
+        # Extract authors (no authors)
+        # Extract authors (no authors)
+        # === Extract authors ===
+        # ✅ STEP 1: Try direct 文／ pattern first
+        print("hello")
+        author_tag = soup.select_one("article#article_body p")
+        if author_tag:
+            text = author_tag.get_text(strip=True)
+            match = re.search(r"[【\[]文／([\u4e00-\u9fa5]{2,4})[】\]]", text)
+            if match:
+                self.authors.append(match.group(1).strip())
+                print("✅ Author extracted from 文／ pattern:", match.group(1))
+                return  # Stop here if found
+
+        # ✅ STEP 2: Fallback to your original multi-selector loop
+        authors_selectors = [
+            {"selector": "div.whitecon.article[data-page='1']"},
+            {"selector": "div.whitecon.article[itemprop='articleBody'] .text.boxText"},
+            {"selector": "div[data-desc='內文'] div.text"}
         ]
+
         for selector in authors_selectors:
             element = soup.select_one(selector["selector"])
-            print("element:",element)
-            # print("element:",element)
-            isOutLoopReadyToBreak = False
+            print("element:", element)
+            if not element:
+                continue
 
-            if element:
-                for p in element.find_all('p'):
-                    text = p.get_text()
+            for p in element.find_all('p'):
+                text = p.get_text()
 
-                    # Pattern 1: 記者[Name]／
-                    match = re.search(r'記者(\w{2,4})／', text)
-                    if match:
-                        self.authors.append(match.group(1).strip())
-                        isOutLoopReadyToBreak = True
-                        break  # Stop after first match
+                # Pattern 1: 記者[Name]／
+                match = re.search(r'記者([\u4e00-\u9fa5]{2,4})／', text)
+                if match:
+                    self.authors.append(match.group(1).strip())
+                    print("✅ Author from '記者...／':", match.group(1))
+                    return
 
-                    # Pattern 2: [Name]／核稿編輯
-                    match = re.search(r'(\w{2,4})／核稿編輯', text)
-                    if match:
-                        self.authors.append(match.group(1).strip())
-                        isOutLoopReadyToBreak = True
-                        break  # Stop after first match
+                # Pattern 2: [Name]／核稿編輯
+                match = re.search(r'([\u4e00-\u9fa5]{2,4})／核稿編輯', text)
+                if match:
+                    self.authors.append(match.group(1).strip())
+                    print("✅ Author from '...／核稿編輯':", match.group(1))
+                    return
 
-            if isOutLoopReadyToBreak:
-                break
+                # (Optional future: Add more patterns here if needed)
+
+            
 
 
 
@@ -2341,18 +2357,32 @@ class PTSNews(News):
         print("self.published_at:",self.published_at)
 
         # Extract authors
-        date_selector=[
+        date_selector = [
             {"selector": "div.article_authors div.reporter-container"},
         ]
+
         for selector in date_selector:
-            element=soup.select_one(selector["selector"])
-            print("element:",element)
+            element = soup.select_one(selector["selector"])
+            print("element:", element)
             if element:
-                a_elements=element.find_all("a")
-                print("a_elements:",a_elements)
+                a_elements = element.find_all("a")
+                print("a_elements:", a_elements)
                 for a_element in a_elements:
-                    text=a_element.get_text()
+                    text = a_element.get_text()
                     self.authors.append(text)
+                    print("✅ Extracted author from original method:", text)
+
+        # === ADDITIONAL AUTHOR EXTRACTION (for PTS format) ===
+        # Example HTML:
+        # <div class="text-muted article-info">
+        #     <span class="d-none d-md-inline">劉韋廷</span>
+        # </div>
+        additional_author_element = soup.select_one("div.article-info span")
+        if additional_author_element:
+            text = additional_author_element.get_text(strip=True)
+            if text and text not in self.authors:
+                self.authors.append(text)
+                print("✅ Extracted author from PTS format:", text)
                 # # 1. First, try to extract the journalist name (primary author)
                 # journalist_match = re.search(r'中央社 記者([\u4e00-\u9fff]{2,3})', text)
                 # if journalist_match:
@@ -2363,14 +2393,14 @@ class PTSNews(News):
                 # if journalist_match:
                 #     self.authors.append(journalist_match.group(1))
 
-        # Extract images
-        # date_selector=[
-        #     {"selector": "figure img"},  # Preferred - time tag with datetime attribute
-        # ]
-        # for selector in date_selector:
-        #     element=soup.select_one(selector["selector"])
-        #     if element:
-        #         self.images.append(element["src"])
+        #Extract images
+        date_selector=[
+            {"selector": "figure img"},  # Preferred - time tag with datetime attribute
+        ]
+        for selector in date_selector:
+            element=soup.select_one(selector["selector"])
+            if element:
+                self.images.append(element["src"])
                 break
 
 class CTEE(News):
@@ -3045,6 +3075,7 @@ class SETN(News):
                         print(f"⚠️ Failed to parse date from '{date_text}':", e)
 
         # Extract author
+        # Extract author
         div_element = soup.find("article")
         p_elements = div_element.find_all("p")
         if p_elements:
@@ -3053,14 +3084,19 @@ class SETN(News):
             # Check which name format is present
             if '記者' in raw_text:
                 # Case 1: "記者王超群∕台北報導"
-                # This removes the "記者" prefix, splits the string at the slash,
-                # and takes the first part (the name).
                 name = re.split(r'[∕／/]', raw_text.replace('記者', ''))[0]
+            elif '報導' in raw_text and ('∕' in raw_text or '／' in raw_text or '/' in raw_text):
+                # Case 2: "社會中心／洪正達報導"
+                match = re.search(r'[∕／/]\s*([\u4e00-\u9fa5]{2,4})報導', raw_text)
+                if match:
+                    name = match.group(1)
+                else:
+                    name = raw_text
             else:
-                # Case 2: "王崑義"
-                # The entire string is the name.
+                # Case 3: "王崑義"
                 name = raw_text
-            print("name:",name)
+
+            print("name:", name)
             self.authors.append(name.strip())
         
         # Extract images
@@ -5080,6 +5116,7 @@ class YahooNews(News):
         else:
             self.content = "No content found"
 
+<<<<<<< Updated upstream
 class MyGoPenNews(News):
     def __init__(self, url=None):
         super().__init__(url)
@@ -5394,3 +5431,7 @@ class FactcheckLab(News):
                 # 若你的系統需要嚴格映射，則拋出；否則可忽略或記錄
                 # raise UnmappedMediaNameError(source_text) from e
                 pass
+=======
+
+
+>>>>>>> Stashed changes
