@@ -21,12 +21,17 @@ def debug_chrome_files():
 
 @router.post("/parse-news", response_model=NewsResponse)
 async def parse_news(news: NewsRequest, db: AsyncSession = Depends(get_db)):
+    print("DLLM")
     return await news_controller.parse_news_article(news, db)
 
 
 @router.post("/scrape-news/{media_name}", response_model=List[NewsResponse])
 async def fetch_news(media_name: str):
-    return await news_controller.scrape_classify_and_store_news_for_one_news_outlet(media_name)
+    return await news_controller.scrape_generate_question_and_classify_and_store_news_for_one_news_outlet(media_name)
+
+@router.post("/scrape-news/{media_name}", response_model=List[NewsResponse])
+async def fetch_news(media_name: str):
+    return await news_controller.scrape_for_one_news_outlet(media_name)
 
 
 @router.post("/scrape-all-taiwanese-news", response_model=List[NewsResponse])

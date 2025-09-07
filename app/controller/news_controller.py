@@ -25,11 +25,9 @@ async def parse_news_article(news: NewsRequest, db: AsyncSession) -> NewsRespons
     parser_class = NEWS_CLASSES.get(news.media)
     if not parser_class:
         raise HTTPException(status_code=400, detail=f"Media class '{news.media}' not found")
-
+    print("parser_class:",parser_class)
     article: News = parser_class(news.url)
     result = article.parse_article_with_errors()
-    if result.errors:
-        await scrape_service.log_scrape_error(db, result.errors)
 
     return NewsResponse(
         url=article.url,
@@ -43,7 +41,7 @@ async def parse_news_article(news: NewsRequest, db: AsyncSession) -> NewsRespons
     )
 
 
-async def scrape_classify_and_store_news_for_one_news_outlet(media_name: str) -> List[NewsResponse]:
+async def scrape_generate_question_and_classify_and_store_news_for_one_news_outlet(media_name: str) -> List[NewsResponse]:
     parser_class = NEWS_CLASSES.get(media_name)
 
     try:

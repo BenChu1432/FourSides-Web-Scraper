@@ -27,6 +27,7 @@ import time
 import platform
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+from urllib.parse import urljoin
 
 
 # Constants
@@ -5116,7 +5117,6 @@ class YahooNews(News):
         else:
             self.content = "No content found"
 
-<<<<<<< Updated upstream
 class MyGoPenNews(News):
     def __init__(self, url=None):
         super().__init__(url)
@@ -5151,18 +5151,32 @@ class MyGoPenNews(News):
         self.summary = meta_desc["content"].strip() if meta_desc and meta_desc.has_attr("content") else "Missing Summary"
 
         # 發布日期
-        pub_date_tag = soup.find("abbr", class_="published")
-        self.published_at = pub_date_tag.get("title") if pub_date_tag else None
+        for abbr in soup.find_all("abbr"):
+            title = abbr.get("title")
+            if title and "T" in title and title.startswith("202"):
+                # 例如標準格式：2025-09-06T09:53:00+08:00
+                self.published_at = standardTaipeiDateToTimestamp(title)
+                break  # 找到第一個就跳出
 
         # 查核記者（MyGoPen 通常沒有）
         self.authors = []
 
         # 內容
-        content_div = soup.find("div", class_="post-body")
+        content_div = soup.find("div", class_="post-body entry-content")
+        self.content = ""
+
         if content_div:
-            self.content = "\n".join(p.get_text(strip=True) for p in content_div.find_all("p"))
-        else:
-            self.content = "Missing Content"
+            # 取得所有文字區段（包含 div, h3, p, br 等混合結構）
+            parts = []
+            for elem in content_div.descendants:
+                if elem.name == "br":
+                    parts.append("\n")
+                elif isinstance(elem, str):
+                    text = elem.strip()
+                    if text:
+                        parts.append(text)
+
+            self.content = "".join(parts).strip()
 
         # 圖片
         self.images = []
@@ -5171,9 +5185,9 @@ class MyGoPenNews(News):
             if src and src.endswith(".jpg"):
                 self.images.append(src)
 
-class TFCNews:
+class TFCNews(News):  # ✅ 改這裡:
     def __init__(self, url=None):
-        self.url = url
+        super().__init__(url)  # ✅ 呼叫父類別 News 的 constructor
         self.media_name = "TFCNews"
         self.max_pages = 2
         self.origin = "native"
@@ -5212,7 +5226,7 @@ class TFCNews:
         print(f"\n📦 共蒐集 {len(article_urls)} 筆文章網址")
         return article_urls
 
-    def parse_article(self):
+    def parse_article(self, soup):
         """
         Crawl all article URLs, parse each article, print a summary,
         and return a list of parsed article dictionaries.
@@ -5221,64 +5235,70 @@ class TFCNews:
         - Uses Selenium driver
         - Prints summaries to stdout
         """
-        results = []
-        urls = self._get_article_urls()
-        driver = self.get_chrome_driver()
+        title_tag = soup.select_one("p.has-text-align-center strong")
+        if title_tag and title_tag.get_text(strip=True):
+            self.title = title_tag.get_text(strip=True)
 
-        print("\n📖 每篇文章摘要：")
-        for url in urls:
+        if self.title == "Missing Title":
+            for tag in soup.find_all("strong"):
+                text = tag.get_text(strip=True)
+                if text and len(text) > 10:
+                    self.title = text
+                    break
+
+        # 作者
+        text_all = soup.get_text()
+        match = re.search(r"查核記者[:：]?\s*([^\s，、\n]+)", text_all)
+        if match:
+            self.authors.append(match.group(1))
+
+        # 內文
+        content_div = soup.find("div", class_=lambda c: c and ("entry-content" in c or "wp-block" in c))
+        if content_div:
+            paragraphs = content_div.find_all(["p", "li"])
+
+            blacklist_keywords = [
+                "發佈：", "發布：", "更新：", "報告編號：",
+                "查核記者", "責任編輯", "記者：", "背景", "查核",
+                "Share on", "Email this Page", "Print this Page"
+            ]
+
+            filtered_paragraphs = []
+            for p in paragraphs:
+                text = p.get_text(strip=True)
+                if text and not any(bad in text for bad in blacklist_keywords):
+                    filtered_paragraphs.append(text)
+
+            self.content = "\n".join(filtered_paragraphs)
+
+
+        # 發佈日期
+        # 發佈日期
+        match = re.search(r"發[布佈][:：]?\s*(\d{4}-\d{2}-\d{2})", text_all)
+        if match:
+            date_str = match.group(1)
             try:
-                driver.get(url)
-                WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.TAG_NAME, "article"))
-                )
-                soup = BeautifulSoup(driver.page_source, "html.parser")
-                self.url = url  # for resolving image URLs
-
-                # ===== 解析開始 =====
-
-                # 標題（先找 <h1>，找不到再 fallback 到 <strong>）
-                title_tag = soup.find("h1")
-                if title_tag and title_tag.get_text(strip=True):
-                    title = title_tag.get_text(strip=True)
-                else:
-                    title = "Missing Title"
-                    strong_tags = soup.find_all("strong")
-                    for tag in strong_tags:
-                        text = tag.get_text(strip=True)
-                        if text and len(text) > 10:
-                            self.title = text
-                            break
-
-                # 查核記者
-                authors = []
-                text_all = soup.get_text()
-                match = re.search(r"查核記者[:：]?\s*([^\s，、\n]+)", text_all)
-                if match:
-                    self.authors.append(match.group(1))
-
-                # 正文內容
-                content_div = soup.find("div", class_=lambda c: c and ("entry-content" in c or "wp-block" in c))
-                if content_div:
-                    paragraphs = content_div.find_all(["p", "li"])
-                    self.content = "\n".join(p.get_text(strip=True) for p in paragraphs if p.get_text(strip=True))
-
-                # 圖片擷取（.jpg）
-                for img in soup.find_all("img"):
-                    image_url = img.get("src")
-                    if not image_url and img.get("srcset"):
-                        candidates = [s.strip().split(" ")[0] for s in img["srcset"].split(",")]
-                        if candidates:
-                            image_url = candidates[-1]
-                    if image_url and ".jpg" in image_url:
-                        full_url = urljoin(self.url, image_url)
-                        self.images.append(full_url)
-
+                dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+                self.published_at = int(dt.timestamp())  # ✅ 轉成整數 timestamp
             except Exception as e:
-                print(f"❌ 讀取失敗：{url}，錯誤：{e}")
+                print(f"⚠️ 日期格式錯誤：{date_str} - {e}")
 
-        driver.quit()
-    
+        title_tag = soup.select_one('p.has-theme-palette-7-background-color strong')
+        if title_tag:
+            self.title = title_tag.get_text(strip=True)
+        else:
+            self.title = "Missing Title"
+
+
+        # 圖片
+        # 初始化圖片列表（如果還沒）
+        # 圖片
+        self.images = []
+        for img in soup.find_all("img"):
+            src = img.get("src")
+            if src and src.endswith(".jpg"):
+                self.images.append(src)
+                        
 
 class FactcheckLab(News):
     def __init__(self, url=None):
@@ -5431,7 +5451,3 @@ class FactcheckLab(News):
                 # 若你的系統需要嚴格映射，則拋出；否則可忽略或記錄
                 # raise UnmappedMediaNameError(source_text) from e
                 pass
-=======
-
-
->>>>>>> Stashed changes

@@ -145,8 +145,6 @@ system_prompt = f"""
 }}
 """
 
-print("system_prompt:",system_prompt)
-
 
 def safe_parse_json(content: str):
     # 嘗試從 markdown 格式中提取純 JSON 區塊
