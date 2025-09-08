@@ -74,7 +74,9 @@ ALLOWED_TAGS = {
         "**headline_reflects_content**（標題與內文一致）",
         "**public_interest_orientation**（以公共利益為導向）",
         "**critical_thinking_encouraged**（促進批判思考）",
-        "**timely_relevance_and_timeless_insight**（報道具時效性和長遠啟發性）"
+        "**timely_relevance_and_timeless_insight**（報道具時效性和長遠啟發性）",
+        "**inclusive_language** (包容性語言)",
+        "**representation_of_marginalized_groups** (弱勢群體有呈現)",
     ],
     "journalistic_demerits":[
         "**decontextualisation**（脫離語境/缺乏細緻脈絡）",
@@ -102,6 +104,13 @@ ALLOWED_TAGS = {
         "**cultural_essentialism**（文化本質論）",
         "**traditional_values_shield**（主張傳統價值作擋箭牌）",
         "**pre_criminal_framing**（預設有罪）"
+        "**whataboutism**（那又怎麼辦主義）"
+        "**pseudo_expertise** (引用非專業人士作為權威)"
+        "**overpersonalisation** (過度強調個人責任，忽視結構性問題)",
+        "**false_balance**（虛假平衡）"
+        "**false_equivalence**（錯誤類比）",
+        "**echoing_government_or_corporate_press_releases**（僅重複官方說法）",
+        "**narrative_over_facts**（敘事主導，事實退位）"
     ],
     "reporting_style": [
         "he_said_she_said_reporting", "propagandistic_reporting", "investigative_reporting",
