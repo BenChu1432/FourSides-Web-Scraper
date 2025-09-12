@@ -200,6 +200,7 @@ async def store_all_articles(articles: List["NewsEntity"], db: AsyncSession):
             "journalistic_demerits": nz(getattr(article, "journalistic_demerits", None), []),
             "reporting_intention": nz(getattr(article, "reporting_intention", None), ""),
             "reporting_style": nz(getattr(article, "reporting_style", None), ""),
+            "clickbait": nz(getattr(article, "clickbait", None), None)
         }
         values_to_insert.append(article_dict)
         news_to_insert.append(article)

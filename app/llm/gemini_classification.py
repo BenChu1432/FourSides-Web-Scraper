@@ -1,19 +1,19 @@
 import asyncio
 import re
-from typing import Dict, List, Optional
-from together import Together
+from typing import Any, Dict, List, Optional
 import json
 import os
 from dotenv import load_dotenv
 import google.generativeai as genai
+
+# Assuming these exist in your project structure
 from app.modals.newsEntity import NewsEntity
 from scrapers.news import AssessmentItem
-import random
 from util import traditionalChineseUtil
 
 load_dotenv()
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-model = genai.GenerativeModel("models/gemini-2.5-flash-lite") 
+model = genai.GenerativeModel("models/gemini-2.5-flash-lite")
 
 ALLOWED_TAGS = {
     "journalistic_merits": [
@@ -42,7 +42,7 @@ ALLOWED_TAGS = {
         "**critical_thinking_encouraged**（促進批判思考）",
         "**timely_relevance_and_timeless_insight**（報道具時效性和長遠啟發性）"
     ],
-    "journalistic_demerits":[
+    "journalistic_demerits": [
         "**decontextualisation**（脫離語境/缺乏細緻脈絡）",
         "**clickbait**（標題黨）",
         "**fear_mongering**（惡意引起社會恐慌）",
@@ -70,146 +70,392 @@ ALLOWED_TAGS = {
         "**pre_criminal_framing**（預設有罪）"
     ],
     "reporting_style": [
-        "he_said_she_said_reporting", 
-        "propagandistic_reporting", 
+        "he_said_she_said_reporting",
+        "propagandistic_reporting",
         "investigative_reporting",
-        "solutions_journalism", 
-        "feature_reporting", 
-        "advocacy_journalism", 
-        "opinion_reporting", 
-        "sensationalist_reporting", 
+        "solutions_journalism",
+        "feature_reporting",
+        "advocacy_journalism",
+        "opinion_reporting",
+        "sensationalist_reporting",
         "stenographic_reporting",
-        "data_journalism", 
+        "data_journalism",
         "explanatory_reporting",
         "entertainment_reporting",
         "infotainment_reporting",
         "patriotic_reporting"
     ]
 }
+
 journalistic_merits_list = "\n".join([f"- {tag}" for tag in ALLOWED_TAGS["journalistic_merits"]])
 misguiding_tools_list = "\n".join([f"- {tag}" for tag in ALLOWED_TAGS["journalistic_demerits"]])
-reporting_style = "\n".join([f"- {tag}" for tag in ALLOWED_TAGS["reporting_style"]])
+reporting_style_list = "\n".join([f"- {tag}" for tag in ALLOWED_TAGS["reporting_style"]])
 
-# political standing
+# ---- System prompt (hardened) ----
 system_prompt = f"""
 你是一位新聞分析助理，專門負責判斷新聞文章中多大程度上存在以下特定的新聞優點和誤導性報導技術，並針對每一項提供清楚、有根據的說明。
 
+嚴格輸出規則（務必遵守）：
+- 僅輸出「一個」JSON 物件，不要輸出任何其他文字、說明或程式碼區塊。
+- 不要使用 Markdown 圍欄（例如 ```json）。
+- 僅能使用頂層鍵：clickbait、journalistic_demerits、journalistic_merits、reporting_style、reporting_intention。
+- 任何字串中的英文雙引號 " 需以 \\" 轉義；可以使用全形引號「」不需轉義。
+- 不要使用單一收尾引號 ’ 造成 JSON 字串不合法。
+- 字串中的換行請使用 \\n。
+- 不要包含多餘逗號（trailing commas）。
+- clickbait.confidence 必須為 0 到 1 的數字（兩位小數），explanation/refined_title 為非空字串。
+- 僅包含實際出現且適用的標籤（merits/demerits），沒有出現就省略該子鍵。
+
 ---
+1) 新聞報道標題黨程度（clickbait）
+- 評估標題是否有誇張形容、恐嚇語、賣關子、絕對化等特徵。
+- 信心分數：
+  - 0.00--0.30：無明顯標題黨元素
+  - 0.31--0.60：輕微吸睛
+  - 0.61--0.85：多種特徵且誇張
+  - 0.86--1.00：嚴重誇張或與內文落差大
+- refined_title：中性克制、直接反映內文，不留懸念。
 
-1.若文章標題包含「標題黨／聳動」特徵（如誇張形容、恐嚇性措辭、過度絕對化、賣關子語句），請在輸出 JSON 的最上層加入 "refined_title" 欄位，提供一個更準確、克制且與內文一致的標題；若無此問題，"refined_title" 請填 null。請以繁體中文撰寫 refined_title。
-
-2.請依據以下兩組標籤進行分析：
-
-2a.### 📌 誤導手法（journalistic demerits）
-這些是可能誤導讀者的報導技術，只標示有關或出現過的：
-
+2a) 誤導手法（journalistic_demerits）
+只標示有關或出現過的：
 {misguiding_tools_list}
 
-2b.### 📌 新聞優點（journalistic merits）
-這些是能提升新聞品質的特徵，請判斷是否有具體體現：
-
+2b) 新聞優點（journalistic_merits）
+只標示有具體體現的：
 {journalistic_merits_list}
 
-3.### 📌 新聞報道風格（reporting styles）
-{reporting_style}
+3) 新聞報道風格（reporting_style）
+{reporting_style_list}
 
-4.### 📌 新聞報道目的（reporting intention）
-自由發揮
----
+4) 新聞報道目的（reporting_intention）
+自擬 1-3 項，每項最多 10 字。
 
-### ⚠️ 請注意：
-- **僅列出實際在文章中出現的標籤**（無論是誤導工具或新聞價值特徵）。
-- 每一項標註請提供具體描述與評估程度，並引用文章中的字詞、句子或段落作為依據。
-- 只顯示適用的誤導手法（journalistic demerits）和新聞優點（journalistic merits）, 但必須顯示"refined_title", 新聞報道風格（reporting styles）和新聞報道目的（reporting intention）
-- 輸出範例格式必須為標準 JSON，直接輸出純 JSON 結構，不需要額外包裝在 content 欄位下。
-
----
+輸出 JSON 範例（鍵名固定；僅示意型態，實際只輸出有出現的子鍵）：
 {{
-  "refined_title": "若需要修訂則填入修訂後標題；否則為 null",
+  "clickbait": {{
+    "confidence": 0.00,
+    "explanation": "……",
+    "refined_title": "……"
+  }},
   "journalistic_demerits": {{
-    "decontextualisation": {{
-      "description": "請用繁體中文具體詳細描述該誤導技術在文章中是否出現，以及用文章中的具體用詞解釋出現的方式、程度與語境，並需要準確引用人、物和事說明。",
-      "degree": "low / moderate / high"
-    }},
-    ...
+    "anonymous_authority": {{
+      "description": "……",
+      "degree": "low"
+    }}
   }},
   "journalistic_merits": {{
-    "multiple_perspectives": {{
-      "description": "請用繁體中文具體詳細描述該新聞優點在文章中是否出現，以及用文章中的具體用詞解釋出現的方式、程度與語境，並需要準確引用人、物和事明。",
-      "degree": "low / moderate / high"
-    }},
-    ...
+    "headline_reflects_content": {{
+      "description": "……",
+      "degree": "high"
+    }}
   }},
-  "reporting_style": [選用適用的報道風格, ...],
-  "reporting_intention": [用最多10字準確指出1-3個報道目的和用意, ...],
+  "reporting_style": ["feature_reporting", "explanatory_reporting"],
+  "reporting_intention": ["事實報導", "事件釐清"]
 }}
 """
 
+# ---------- Helpers ----------
+def _is_retriable_error_msg(msg: str) -> bool:
+    msg = (msg or "").upper()
+    retriable_tokens = ("500", "503", "504", "INTERNAL", "UNAVAILABLE", "DEADLINE_EXCEEDED", "TIMEOUT")
+    return any(tok in msg for tok in retriable_tokens)
 
-def safe_parse_json(content: str):
-    # 嘗試從 markdown 格式中提取純 JSON 區塊
-    match = re.search(r"```json\s*([\s\S]+?)\s*```", content)
-    if not match:
-        # 若無 markdown 標記，直接從第一個 { 開始
-        match = re.search(r"\{[\s\S]+", content)
-        if not match:
-            raise ValueError("⚠️ 無法找到 JSON 區塊")
+
+def _normalize_degree(val: str) -> str:
+    if not isinstance(val, str):
+        return "low"
+    v = val.strip().lower()
+    return v if v in {"low", "moderate", "high"} else "low"
+
+
+def _build_clean_allowed_set(raw_tags: List[str]) -> set:
+    clean = set()
+    for t in raw_tags:
+        if t.startswith("**") and t.count("**") >= 2:
+            core = t.split("**")[1].strip()
+        else:
+            core = t
+        # Keep spaces (e.g., "nationalistic framing"), only strip fullwidth parens
+        core = core.replace("（", " ").replace("）", " ").strip()
+        clean.add(core)
+    return clean
+
+
+_CLEAN_ALLOWED_DEMERITS = _build_clean_allowed_set(ALLOWED_TAGS["journalistic_demerits"])
+_CLEAN_ALLOWED_MERITS = _build_clean_allowed_set(ALLOWED_TAGS["journalistic_merits"])
+
+
+def _clean_key(key: str) -> str:
+    if not isinstance(key, str):
+        return ""
+    k = key.strip()
+    if k.startswith("**") and k.count("**") >= 2:
+        k = k.split("**")[1].strip()
+    # Preserve internal spaces; only remove fullwidth parens
+    k = k.replace("（", " ").replace("）", " ").strip()
+    return k
+
+
+def _coerce_float_0_1(x: Any) -> Optional[float]:
     try:
-        json_str = match.group(1) if "```" in match.group(0) else match.group(0)
-        return json.loads(json_str)
-    except json.JSONDecodeError as e:
-        print("❌ JSON decode error at character:", e.pos)
-        print("content:",content)
-        print("json_str:",json_str)
-        print("⛔ 問題附近內容：", json_str[e.pos - 30:e.pos + 30])
-        raise
+        f = float(x)
+        if f < 0:
+            f = 0.0
+        if f > 1:
+            f = 1.0
+        return round(f + 1e-8, 2)
+    except Exception:
+        return None
 
-def _set_empty_fields(a):
+
+def _strip_code_fences_and_duplicates(content: str) -> str:
+    s = content.strip()
+
+    # Remove any code fences like ```json or ``` (both opening and closing)
+    s = re.sub(r"```[a-zA-Z]*", "", s)
+    s = s.replace("```", "")
+
+    # Remove duplicated json_str blocks at the end if present
+    # Pattern: json_str: { ... } possibly trailing spaces
+    s = re.sub(r'\bjson_str\s*:\s*\{[\s\S]*?\}\s*$', '', s, flags=re.IGNORECASE)
+
+    # Sometimes models echo the same object twice back-to-back.
+    # Heuristic: if there are two top-level JSON objects concatenated,
+    # keep only the first one.
+    # We'll find the first balanced top-level object by scanning braces.
+    first_obj = _extract_first_top_level_json_object(s)
+    if first_obj is not None:
+        return first_obj
+
+    return s
+
+
+def _extract_first_top_level_json_object(s: str) -> Optional[str]:
+    # Find the first balanced { ... } at top level.
+    start = s.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    escape = False
+    for i in range(start, len(s)):
+        ch = s[i]
+        if in_str:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
+        else:
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return s[start:i+1]
+    return None
+
+
+def safe_parse_json(content: str) -> dict:
+    """
+    Extract and parse the first valid top-level JSON object from content.
+    Applies sanitization for common LLM issues (code fences, duplicates, trailing commas).
+    """
+    # Pre-clean text (remove code fences, duplicated "json_str" copies, keep only first JSON)
+    cleaned = _strip_code_fences_and_duplicates(content)
+
+    # If still contains extra text before/after the JSON object, isolate first JSON object.
+    json_candidate = _extract_first_top_level_json_object(cleaned)
+    if json_candidate is None:
+        # last resort: try naive bounding
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise ValueError("No JSON object found in model output")
+        json_candidate = cleaned[start:end+1]
+
+    # Common fixups:
+    j = json_candidate
+
+    # Replace smart right single quote with ASCII apostrophe to avoid illegal JSON endings
+    j = j.replace("’", "'").replace("‘", "'")
+    # Replace smart double quotes with ASCII (can help when model accidentally used them)
+    j = j.replace("“", '"').replace("”", '"')
+
+    # Remove trailing commas before } or ]
+    j = re.sub(r",\s*([}\]])", r"\1", j)
+
+    # Replace any tab characters with spaces (JSON allows it but safer)
+    j = j.replace("\t", "    ")
+
+    # Ensure control characters are removed (except standard whitespace)
+    # JSON strings cannot contain unescaped control chars (0x00-0x1F)
+    def _strip_ctrl(m: re.Match) -> str:
+        return " "
+    j = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", _strip_ctrl, j)
+
+    try:
+        return json.loads(j)
+    except json.JSONDecodeError as e:
+        # Provide context for debugging
+        start = max(e.pos - 40, 0)
+        end = min(e.pos + 40, len(j))
+        snippet = j[start:end]
+        raise ValueError(f"JSON decode error at char {e.pos}: {e.msg}. Snippet: {snippet}")
+
+
+def _set_empty_fields(a: NewsEntity):
     a.refined_title = None
     a.reporting_style = []
     a.reporting_intention = []
     a.journalistic_demerits = {}
     a.journalistic_merits = {}
+    a.clickbait = None
 
-def _is_retriable_error_msg(msg: str) -> bool:
-    # Based on Gemini troubleshooting guide: 500 INTERNAL, 503 UNAVAILABLE, 504 DEADLINE_EXCEEDED
-    # Also handle common wording
-    msg = (msg or "").upper()
-    retriable_tokens = ("500", "503", "504", "INTERNAL", "UNAVAILABLE", "DEADLINE_EXCEEDED", "TIMEOUT")
-    return any(tok in msg for tok in retriable_tokens)
 
+def _extract_clickbait(data: dict) -> Optional[dict]:
+    """
+    Returns a normalized clickbait dict or None.
+    {
+      "confidence": float (0..1, 2dp),
+      "explanation": str,
+      "refined_title": str
+    }
+    """
+    cb = data.get("clickbait")
+    if not isinstance(cb, dict):
+        # Tolerate top-level refined_title if model messed up (back-compat)
+        rt = data.get("refined_title")
+        if isinstance(rt, str) and rt.strip():
+            return {
+                "confidence": None,
+                "explanation": None,
+                "refined_title": rt.strip()
+            }
+        return None
+
+    conf = _coerce_float_0_1(cb.get("confidence"))
+    exp = cb.get("explanation") if isinstance(cb.get("explanation"), str) and cb.get("explanation").strip() else None
+    rt = cb.get("refined_title") if isinstance(cb.get("refined_title"), str) and cb.get("refined_title").strip() else None
+
+    if conf is None and not exp and not rt:
+        return None
+
+    return {
+        "confidence": conf,
+        "explanation": exp.strip() if isinstance(exp, str) else None,
+        "refined_title": rt.strip() if isinstance(rt, str) else None
+    }
+
+
+def _extract_reporting_style(data: dict) -> List[str]:
+    rs = data.get("reporting_style", [])
+    if not isinstance(rs, list):
+        return []
+    allowed = set(ALLOWED_TAGS["reporting_style"])
+    return [t for t in rs if isinstance(t, str) and t in allowed]
+
+
+def _extract_reporting_intention(data: dict) -> List[str]:
+    ri = data.get("reporting_intention", [])
+    if not isinstance(ri, list):
+        return []
+    out = []
+    for x in ri:
+        if isinstance(x, (str, int, float)):
+            sx = str(x).strip()
+            # Remove surrounding quotes/spaces, cap at 10 chars
+            sx = sx.strip().strip("「」\"'")
+            if sx:
+                out.append(sx[:10])
+        if len(out) >= 3:
+            break
+    return out
+
+
+def _extract_tagged_section(
+    data: dict,
+    key: str,
+    allowed_set: set
+) -> Dict[str, AssessmentItem]:
+    raw = data.get(key, {})
+    out: Dict[str, AssessmentItem] = {}
+    if not isinstance(raw, dict):
+        return out
+
+    for k, v in raw.items():
+        if not isinstance(v, dict):
+            continue
+        clean_key = _clean_key(k)
+        if clean_key not in allowed_set:
+            continue
+        desc = v.get("description", "")
+        deg = v.get("degree", "")
+        if isinstance(desc, str) and desc.strip():
+            if isinstance(deg, str) and deg.strip().lower() == "not applicable":
+                continue
+            out[clean_key] = {
+                "description": desc.strip(),
+                "degree": _normalize_degree(deg)
+            }
+    return out
+
+
+def validate_schema(d: dict) -> Optional[str]:
+    # clickbait
+    if "clickbait" not in d or not isinstance(d["clickbait"], dict):
+        return "missing 'clickbait' object"
+    cb = d["clickbait"]
+    if not isinstance(cb.get("refined_title"), str) or not cb["refined_title"].strip():
+        return "missing 'clickbait.refined_title'"
+    conf = _coerce_float_0_1(cb.get("confidence"))
+    if conf is None:
+        return "invalid 'clickbait.confidence' (must be 0..1 number)"
+    # reporting_style
+    if "reporting_style" in d and not isinstance(d["reporting_style"], list):
+        return "'reporting_style' must be a list"
+    # reporting_intention
+    if "reporting_intention" in d and not isinstance(d["reporting_intention"], list):
+        return "'reporting_intention' must be a list"
+    # journalistic_demerits/merits (if present) must be objects
+    for k in ("journalistic_demerits", "journalistic_merits"):
+        if k in d and not isinstance(d[k], dict):
+            return f"'{k}' must be an object"
+    return None
+
+
+# ---------- Main ----------
 async def classify_article(article: NewsEntity, max_retries: int = 3):
-    print("🌈 classifying the news:", article.url)
+    print("🌈 classifying the news:", getattr(article, "url", None))
 
-    # Prefill defaults so downstream never breaks
     _set_empty_fields(article)
 
-    # Optional: truncate to mitigate deadline/exceeded and 500 due to very long context
     content = article.content or ""
-
-    user_prompt = f"""請分析以下新聞文章，並依 system prompt 的格式與規則輸出結構化 JSON 分析結果:
+    user_prompt = f"""請分析以下新聞文章，並依 system prompt 的格式與規則輸出結構化 JSON 分析結果：
 
 --- ARTICLE START ---
 {traditionalChineseUtil.safeTranslateIntoTraditionalChinese(content)}
 --- ARTICLE END ---
 """
 
-    delay = 0.8  # backoff starting delay
+    delay = 0.8
     for attempt in range(max_retries):
         try:
             chat = model.start_chat(history=[{"role": "user", "parts": [system_prompt.strip()]}])
-            # Set a timeout so calls don't hang forever (504 guidance: increase timeout if needed)
             response = chat.send_message(user_prompt.strip())
-            print("✅ Gotten an LLM response")
+            print("✅ Got an LLM response")
 
+            # Parse and sanitize JSON
             try:
                 data = safe_parse_json(response.text)
             except Exception as parse_err:
-                # Parsing error isn't a backend 500/503/504; treat as non-retriable unless model hinted at a service issue
                 msg = str(parse_err)
                 if _is_retriable_error_msg(msg) and attempt < max_retries - 1:
-                    await asyncio.sleep(delay + random.random() * 0.5)
-                    delay *= 2
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, 6.0)
                     continue
                 print("⚠️ Failed to parse JSON:", parse_err)
                 return {"ok": False, "error": f"parse_error: {msg}"}
@@ -217,77 +463,44 @@ async def classify_article(article: NewsEntity, max_retries: int = 3):
             if not isinstance(data, dict):
                 return {"ok": False, "error": "parse_error: model output is not a JSON object"}
 
-            # Initialize locals
-            refined_title: Optional[str] = None
-            reporting_style_out: List[str] = []
-            reporting_intention_out: List[str] = []
-            journalistic_demerits_out: Dict[str, AssessmentItem] = {}
-            journalistic_merits_out: Dict[str, AssessmentItem] = {}
+            # Optional: strict schema validation before extraction
+            schema_err = validate_schema(data)
+            if schema_err:
+                # Allow one retry if schema invalid and attempts remain
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, 6.0)
+                    continue
+                return {"ok": False, "error": f"parse_error: {schema_err}"}
 
-            def _normalize_degree(val: str) -> str:
-                allowed = {"low", "moderate", "high"}
-                return val.lower() if isinstance(val, str) and val.lower() in allowed else "low"
+            # Extract sections
+            clickbait_obj = _extract_clickbait(data)
+            reporting_style_out = _extract_reporting_style(data)
+            reporting_intention_out = _extract_reporting_intention(data)
+            journalistic_demerits_out = _extract_tagged_section(
+                data, "journalistic_demerits", _CLEAN_ALLOWED_DEMERITS
+            )
+            journalistic_merits_out = _extract_tagged_section(
+                data, "journalistic_merits", _CLEAN_ALLOWED_MERITS
+            )
 
-            # refined_title
-            rt = data.get("refined_title")
-            refined_title = rt.strip() if isinstance(rt, str) and rt.strip() else None
+            # Strict validation for clickbait JSON (since schema requires a JSONB)
+            if not clickbait_obj or not isinstance(clickbait_obj, dict):
+                return {"ok": False, "error": "parse_error: missing or invalid 'clickbait' object"}
+            if not clickbait_obj.get("refined_title"):
+                return {"ok": False, "error": "parse_error: missing clickbait.refined_title"}
 
-            # reporting_style
-            rs = data.get("reporting_style", [])
-            if isinstance(rs, list):
-                reporting_style_out = [t for t in rs if isinstance(t, str) and t in ALLOWED_TAGS["reporting_style"]]
+            # Normalize confidence to float or None
+            if "confidence" in clickbait_obj:
+                clickbait_obj["confidence"] = _coerce_float_0_1(clickbait_obj["confidence"])
 
-            # reporting_intention
-            ri = data.get("reporting_intention", [])
-            if isinstance(ri, list):
-                reporting_intention_out = [str(x).strip() for x in ri if isinstance(x, (str, int, float))][:3]
-
-            # journalistic_demerits
-            jd = data.get("journalistic_demerits", {})
-            if isinstance(jd, dict):
-                clean_allowed = set()
-                for t in ALLOWED_TAGS["journalistic_demerits"]:
-                    clean = t.split("**")[1].strip() if t.startswith("**") and "**" in t[2:] else t
-                    clean = clean.replace("（", " ").replace("）", " ").strip().split()[0]
-                    clean_allowed.add(clean)
-                for key, item in jd.items():
-                    clean_key = key.strip("* ").split("**")[-1] if "**" in key else key.strip()
-                    clean_key = clean_key.replace("（", " ").replace("）", " ").strip().split()[0]
-                    if clean_key in clean_allowed and isinstance(item, dict):
-                        desc = item.get("description", "")
-                        deg = item.get("degree", "")
-                        if isinstance(desc, str) and desc.strip():
-                            if isinstance(deg, str) and deg.lower() == "not applicable":
-                                continue
-                            journalistic_demerits_out[clean_key] = {
-                                "description": desc.strip(),
-                                "degree": _normalize_degree(deg)
-                            }
-
-            # journalistic_merits
-            jm = data.get("journalistic_merits", {})
-            if isinstance(jm, dict):
-                clean_allowed = set()
-                for t in ALLOWED_TAGS["journalistic_merits"]:
-                    clean = t.split("**")[1].strip() if t.startswith("**") and "**" in t[2:] else t
-                    clean = clean.replace("（", " ").replace("）", " ").strip().split()[0]
-                    clean_allowed.add(clean)
-                for key, item in jm.items():
-                    clean_key = key.strip("* ").split("**")[-1] if "**" in key else key.strip()
-                    clean_key = clean_key.replace("（", " ").replace("）", " ").strip().split()[0]
-                    if clean_key in clean_allowed and isinstance(item, dict):
-                        desc = item.get("description", "")
-                        deg = item.get("degree", "")
-                        if isinstance(desc, str) and desc.strip():
-                            if isinstance(deg, str) and deg.lower() == "not applicable":
-                                continue
-                            journalistic_merits_out[clean_key] = {
-                                "description": desc.strip(),
-                                "degree": _normalize_degree(deg)
-                            }
+            # Truncate explanation if extremely long (defensive)
+            if isinstance(clickbait_obj.get("explanation"), str):
+                clickbait_obj["explanation"] = clickbait_obj["explanation"].strip()
 
             # Attach to the article
-            article.refined_title = refined_title
+            article.clickbait = clickbait_obj
+            article.refined_title = clickbait_obj.get("refined_title")
             article.reporting_style = reporting_style_out
             article.reporting_intention = reporting_intention_out
             article.journalistic_demerits = journalistic_demerits_out
@@ -299,15 +512,12 @@ async def classify_article(article: NewsEntity, max_retries: int = 3):
         except Exception as e:
             msg = str(e)
             if _is_retriable_error_msg(msg) and attempt < max_retries - 1:
-                await asyncio.sleep(delay + random.random() * 0.5)
-                delay *= 2
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 6.0)
                 continue
-            # Per Gemini troubleshooting guide:
-            # - 500 INTERNAL: unexpected error -> reduce input or switch model; retry already attempted
-            # - 503 UNAVAILABLE: service overloaded -> retry already attempted
-            # - 504 DEADLINE_EXCEEDED: increase timeout -> we used 60s; consider higher if needed
             print("⚠️ Classification error (final):", e)
             return {"ok": False, "error": msg}
+
 
 async def classify_articles(articles: List[NewsEntity]):
     tasks = [classify_article(article) for article in articles]

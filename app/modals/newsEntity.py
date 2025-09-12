@@ -44,6 +44,7 @@ class NewsEntity(Base):
     # Tagging JSON maps
     journalistic_merits = Column(JSONB, nullable=True)
     journalistic_demerits = Column(JSONB, nullable=True)
+    clickbait= Column(JSONB, nullable=True)
 
     # Style/Intention arrays
     reporting_style = Column(ARRAY(String), nullable=False, server_default="{}")
