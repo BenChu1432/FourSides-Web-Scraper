@@ -146,15 +146,30 @@ class News(ABC):
                         'DNT': '1',
                         'Upgrade-Insecure-Requests': '1',
                     }
-            print("self.url:",self.url)
-            response = requests.get(self.url, headers=headers)
-            response.encoding = 'utf-8'
+            response = requests.get(self.url, headers=headers, timeout=5)
             response.raise_for_status()
+
             soup = BeautifulSoup(response.text, "html.parser")
+            print("🌐 Requests succeeded, calling parse_article...")
             self.parse_article(soup)
+
         except Exception as e:
-            print(f"Error fetching article: {e}")
-            raise
+            print(f"⚠️ Falling back to Selenium due to: {e}")
+            try:
+                driver = self.get_chrome_driver()
+                driver.get(str(self.url))
+                time.sleep(WAITING_TIME_FOR_JS_TO_FETCH_DATA)
+
+                html = driver.page_source
+                soup = BeautifulSoup(html, "html.parser")
+
+                print("📦 Calling parse_article() after Selenium fallback")  # MUST SEE THIS
+                self.parse_article(soup)  # ✅ Must be here
+
+            except Exception as se:
+                print(f"❌ Selenium failed: {se}")
+            finally:
+                driver.quit()
 
     
     def parse_article_with_errors(self) -> ParseArticleResult:
@@ -5235,69 +5250,103 @@ class TFCNews(News):  # ✅ 改這裡:
         - Uses Selenium driver
         - Prints summaries to stdout
         """
-        title_tag = soup.select_one("p.has-text-align-center strong")
-        if title_tag and title_tag.get_text(strip=True):
-            self.title = title_tag.get_text(strip=True)
+        # 使用非 headless 模式（可視化）
+        driver=self.get_chrome_driver()
 
-        if self.title == "Missing Title":
-            for tag in soup.find_all("strong"):
-                text = tag.get_text(strip=True)
-                if text and len(text) > 10:
-                    self.title = text
-                    break
+        # 加上防偵測腳本
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": """
+                Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+                });
+            """
+        })
+        driver.execute_script("""
+            let modals = document.querySelectorAll('.popup, .modal, .ad, .overlay, .vjs-modal');
+            modals.forEach(el => el.remove());
+        """)
 
-        # 作者
-        text_all = soup.get_text()
-        match = re.search(r"查核記者[:：]?\s*([^\s，、\n]+)", text_all)
-        if match:
-            self.authors.append(match.group(1))
+        # 建議測試短網址，避免過長導致連線問題
+        print("🔗 嘗試連線至：", self.url)
 
-        # 內文
-        content_div = soup.find("div", class_=lambda c: c and ("entry-content" in c or "wp-block" in c))
-        if content_div:
-            paragraphs = content_div.find_all(["p", "li"])
+        try:
+            driver.get(str(self.url))
+            time.sleep(2)  # 等待 JS 載入
 
-            blacklist_keywords = [
-                "發佈：", "發布：", "更新：", "報告編號：",
-                "查核記者", "責任編輯", "記者：", "背景", "查核",
-                "Share on", "Email this Page", "Print this Page"
-            ]
+            html = driver.page_source
+            soup = BeautifulSoup(html, "html.parser")
+            # 1. Find the entry content container
+            entry_content = soup.find("div", class_="entry-content")
 
-            filtered_paragraphs = []
-            for p in paragraphs:
-                text = p.get_text(strip=True)
-                if text and not any(bad in text for bad in blacklist_keywords):
-                    filtered_paragraphs.append(text)
+            # Step 1: Collect all 'kt-inside-inner-col' containers
+            containers = entry_content.find_all("div", class_="kt-inside-inner-col")
 
-            self.content = "\n".join(filtered_paragraphs)
+            # Step 2: Collect all meaningful paragraphs across containers
+            paragraphs = []
+            title = None
+
+            for container in containers:
+                for p in container.find_all("p"):
+                    text = p.get_text(strip=True)
+                    if not text:
+                        continue
+                    # Extract title if strong and ends with a question mark
+                    strong = p.find("strong")
+                    if not title and strong and "？" in strong.text:
+                        title = strong.get_text(strip=True)
+                        self.title=title
+                        continue
+                    # Skip metadata paragraphs
+                    if any(keyword in text for keyword in ["發佈", "更新", "責任編輯", "記者", "報告編號"]):
+                        continue
+                    # Accumulate real content
+                    if len(text) > 30 and text != title:
+                        paragraphs.append(text)
+
+            # Join all content paragraphs
+            main_content = "\n\n".join(paragraphs)
+            self.content=main_content
+
+                # if div_elements:
+                #     print("div_elements[0]:",div_elements[0])
+                #     if div_elements[0]:
+                #         title_div=div_elements[0]
+                #         strongs = title_div.select("strong")  # or select_all if it's a custom method
+                #         if strongs:
+                #             title = ' '.join(strong.get_text(strip=True) for strong in strongs)
+                #             self.title=title
+                            
+            print("self.title:",self.title)
+                            
+
+            # 作者
+            text_all = soup.get_text()
+            match = re.search(r"查核記者[:：]?\s*([^\s，、\n]+)", text_all)
+            if match:
+                self.authors.append(match.group(1))
+            match = re.search(r"責任編輯[:：]?\s*([^\s，、\n]+)", text_all)
+            if match:
+                self.authors.append(match.group(1))
+
+            # 發佈日期
+            match = re.search(r"發[布佈][:：]?\s*(\d{4}-\d{2}-\d{2})", text_all)
+            if match:
+                date_str = match.group(1)
+                try:
+                    dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+                    self.published_at = int(dt.timestamp())  # ✅ 轉成整數 timestamp
+                except Exception as e:
+                    print(f"⚠️ 日期格式錯誤：{date_str} - {e}")
 
 
-        # 發佈日期
-        # 發佈日期
-        match = re.search(r"發[布佈][:：]?\s*(\d{4}-\d{2}-\d{2})", text_all)
-        if match:
-            date_str = match.group(1)
-            try:
-                dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
-                self.published_at = int(dt.timestamp())  # ✅ 轉成整數 timestamp
-            except Exception as e:
-                print(f"⚠️ 日期格式錯誤：{date_str} - {e}")
-
-        title_tag = soup.select_one('p.has-theme-palette-7-background-color strong')
-        if title_tag:
-            self.title = title_tag.get_text(strip=True)
-        else:
-            self.title = "Missing Title"
-
-
-        # 圖片
-        # 初始化圖片列表（如果還沒）
-        # 圖片
-        self.images = []
-        for img in soup.find_all("img"):
-            src = img.get("src")
-            if src and src.endswith(".jpg"):
-                self.images.append(src)
+            # 圖片
+            self.images = []
+            for img in soup.find_all("img"):
+                src = img.get("src")
+                if src and src.endswith(".jpg"):
+                    self.images.append(src)
+        finally:
+                driver.quit()
                         
 
 class FactcheckLab(News):
@@ -5389,36 +5438,7 @@ class FactcheckLab(News):
             except Exception:
                 # 若工具不可用，可退回原字串
                 self.published_at = date_str
-
-        # Author(s) — 網站未必固定顯示作者，若有可擴充選擇器
-        # 嘗試幾種常見位置
-        author_candidates = []
-        # 例：class 可能為 byline 或作者連結
-        for sel in ["a.post-card-author", ".byline-author a", ".byline-author", "a.author", ".author"]:
-            for tag in soup.select(sel):
-                txt = tag.get_text(strip=True)
-                if txt:
-                    author_candidates.append(txt)
-        # 去重後加入
-        for author in list(dict.fromkeys(author_candidates)):
-            self.authors.append(author)
-
-        # First image（封面或首圖）
-        first_img_url = None
-        # 先找文章內第一個 <figure> 下的 <img>
-        first_figure = soup.find("figure")
-        if first_figure:
-            img_tag = first_figure.find("img")
-            if img_tag and img_tag.has_attr("src"):
-                first_img_url = urljoin(self.url or base_url, img_tag["src"])
-        # 若未找到，嘗試 og:image
-        if not first_img_url:
-            og_img = soup.find("meta", property="og:image")
-            if og_img and og_img.get("content"):
-                first_img_url = urljoin(self.url or base_url, og_img["content"])
-        if first_img_url:
-            self.images.append(first_img_url)
-
+        
         # Content
         # 文章本體大多在 <article> 中
         content_div = soup.find("article")
@@ -5430,6 +5450,40 @@ class FactcheckLab(News):
                 if txt:
                     content_texts.append(txt)
             self.content = "\n".join(content_texts)
+
+        # Author(s) — 網站未必固定顯示作者，若有可擴充選擇器
+        # 嘗試幾種常見位置
+        author_candidates = []
+        # 例：class 可能為 byline 或作者連結
+        for sel in ["a.post-card-author", ".byline-author a", ".byline-author", "a.author", ".author"]:
+            for tag in soup.select(sel):
+                txt = tag.get_text(strip=True)
+                if txt:
+                    author_candidates.append(txt)
+
+        # 去重後加入
+        for author in list(dict.fromkeys(author_candidates)):
+            self.authors.append(author)
+        
+        imageList=[]
+        # First image（封面或首圖）
+        content=soup.find('section',class_="post-full-content")
+        print("content:",content)
+        # Find all <div> tags with a specific style
+        target_divs = content.find_all("div", style="border:2px; border-style:solid; border-color:#479393; padding: 1em")
+        print("target_divs:",target_divs)
+        # Remove them
+        for div in target_divs:
+            div.decompose()
+        print("content:",content)
+        if content:
+            images=content.find_all("img")
+            print("images:",images)
+            if images:
+                for image in images:
+                    image_url=image['src']
+                    self.images.append(image_url)
+        print("self.images:",self.images)
 
         # News source / origin
         # Factcheck Lab 多為自家出品，若需要對外媒做 mapping，可在此擴充
