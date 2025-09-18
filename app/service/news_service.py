@@ -4,10 +4,11 @@ from fastapi import HTTPException
 from app.aws_lambda.send_logs_to_db import send_log_to_lambda
 from app.db.database import AsyncSessionLocal
 from app.enums.enums import ErrorTypeEnum
-from app.llm.gemini_classification import classify_article, classify_articles
+
 from app.llm.meta_llama_question_generation import generate_question_for_article
 from app.llm.llama_8B_translation import translate_article
 from app.service import scrape_service
+from app.service.classify_service import classify_article
 from scrapers.news import News
 from app.modals.newsEntity import NewsEntity
 from app.dto.dto import NewsResponse
@@ -70,6 +71,9 @@ async def scrape_generate_question_and_classify_and_store_news_for_one_news_outl
         else:
             articles[i].true_false_not_given_questions_data = result
     print("✅ Finished generating questions...")
+    # Clickbait Detection
+
+
     # Tagging
     if news_instance.media_name!="FactcheckLab" and news_instance.media_name!="TFCNews" and news_instance.media_name!="MyGoPenNews":
         print("🧠 Starting classification...")
