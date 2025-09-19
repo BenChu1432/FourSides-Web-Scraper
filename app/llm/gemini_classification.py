@@ -111,35 +111,55 @@ def _coerce_float_0_1(x) -> Optional[float]:
     except Exception:
         return None
 
-system_prompt_template = """你是一位新聞分析助理，專門負責判斷新聞文章中多大程度上存在以下特定的新聞優點和誤導性報導技術，並針對每一項提供清楚、有根據的說明。
+system_prompt_template = """
+你是一位新聞分析助理，專門負責判斷新聞文章中多大程度上存在以下特定的新聞優點和誤導性報導技術，並針對每一項提供清楚、有根據的說明。
 
-嚴格輸出規則（務必遵守）：
-- 僅輸出「一個」JSON 物件，不要輸出任何其他文字、說明或程式碼區塊。
-- 不要使用 Markdown 圍欄（例如 ```json）。
-- 僅能使用頂層鍵：clickbait、journalistic_demerits、journalistic_merits、reporting_style、reporting_intention。
-- 任何字串中的英文雙引號 " 需以 \\" 轉義；可以使用全形引號「」不需轉義。
-- 不要使用單一收尾引號 ’ 造成 JSON 字串不合法。
-- 字串中的換行請使用 \\n。
-- 不要包含多餘逗號（trailing commas）。
-- clickbait.confidence 必須為 0 到 1 的數字（兩位小數），explanation/refined_title 為非空字串。
-- 僅包含實際出現且適用的標籤（merits/demerits），沒有出現就省略該子鍵。
+---
 
-1) 新聞報道標題黨程度（clickbait）
-- 評估標題是否有誇張形容、恐嚇語、賣關子、絕對化等特徵。
-- 信心分數：0.00--0.30（無明顯）/0.31--0.60（輕微）/0.61--0.85（多種且誇張）/0.86--1.00（嚴重）
-- refined_title：中性克制，直接反映內文。
+1.請依據以下兩組標籤進行分析：
 
-2a) 誤導手法（journalistic_demerits）
+1a.### 📌 誤導手法（journalistic_demerits）
+這些是可能誤導讀者的報導技術，只標示有關或出現過的：
+
 {misguiding_tools_list}
 
-2b) 新聞優點（journalistic_merits）
+1b.### 📌 新聞優點（journalistic_merits）
+這些是能提升新聞品質的特徵，請判斷是否有具體體現：
+
 {journalistic_merits_list}
 
-3) 新聞報道風格（reporting_style）
+2.### 📌 新聞報道風格（reporting_style）
 {reporting_style_list}
 
-4) 新聞報道目的（reporting_intention）
-自擬 1-3 項，每項最多 10 字。
+3.### 📌 新聞報道目的（reporting_intention）
+自由發揮，請用最多10字指出1-3個報道目的。
+
+---
+
+### ⚠️ 請注意：
+- **僅列出實際在文章中出現的標籤**（無論是誤導工具或新聞價值特徵）。
+- 每一項標註請提供具體描述與評估程度，並引用文章中的字詞、句子或段落作為依據。
+- 請輸出以下格式的標準 JSON，不要包含 Markdown 或其他說明文字。
+
+---
+{{
+  "journalistic_demerits": {{
+    "decontextualisation": {{
+      "description": "請用繁體中文具體詳細描述該誤導技術在文章中是否出現，以及用文章中的具體用詞解釋出現的方式、程度與語境，並需要準確引用人、物和事說明。",
+      "degree": "low / moderate / high"
+    }},
+    ...
+  }},
+  "journalistic_merits": {{
+    "multiple_perspectives": {{
+      "description": "請用繁體中文具體詳細描述該新聞優點在文章中是否出現，以及用文章中的具體用詞解釋出現的方式、程度與語境，並需要準確引用人、物和事明。",
+      "degree": "low / moderate / high"
+    }},
+    ...
+  }},
+  "reporting_style": ["選用適用的報道風格", ...],
+  "reporting_intention": ["用最多10字指出報道目的", ...]
+}}
 """
 
 def _lists_for_prompt():
@@ -247,13 +267,6 @@ class GeminiArticleClassifier:
         return out
 
     def validate_schema(self, d: dict) -> Optional[str]:
-        if "clickbait" not in d or not isinstance(d["clickbait"], dict):
-            return "missing 'clickbait' object"
-        cb = d["clickbait"]
-        if not isinstance(cb.get("refined_title"), str) or not cb["refined_title"].strip():
-            return "missing 'clickbait.refined_title'"
-        if self._coerce_float_0_1(cb.get("confidence")) is None:
-            return "invalid 'clickbait.confidence' (must be 0..1 number)"
         if "reporting_style" in d and not isinstance(d["reporting_style"], list):
             return "'reporting_style' must be a list"
         if "reporting_intention" in d and not isinstance(d["reporting_intention"], list):
