@@ -54,25 +54,24 @@ async def scrape_generate_question_and_classify_and_store_news_for_one_news_outl
         # Raise HTTPException to notify the client
         return []
     print(f"✅ {len(articles)} articles collected.")
-    for i, article in enumerate(articles):
-        print(f"[{i}] URL: {getattr(article, 'url', 'no-url')}")
+    if news_instance.media_name!="FactcheckLab" and news_instance.media_name!="TFCNews" and news_instance.media_name!="MyGoPenNews":
+        for i, article in enumerate(articles):
+            print(f"[{i}] URL: {getattr(article, 'url', 'no-url')}")
 
-    # Generate one question for each article
-    print("🧠 Generating true-false-not-given questions...")
-    question_results = await asyncio.gather(
-        *[generate_question_for_article(article) for article in articles],
-        return_exceptions=True
-    )
+        # Generate one question for each article
+        print("🧠 Generating true-false-not-given questions...")
+        question_results = await asyncio.gather(
+            *[generate_question_for_article(article) for article in articles],
+            return_exceptions=True
+        )
 
-    for i, result in enumerate(question_results):
-        if isinstance(result, Exception):
-            print(f"❌ Question generation failed for article[{i}]: {result}")
-            articles[i].true_false_not_given_questions_data = []
-        else:
-            articles[i].true_false_not_given_questions_data = result
-    print("✅ Finished generating questions...")
-    # Clickbait Detection
-
+        for i, result in enumerate(question_results):
+            if isinstance(result, Exception):
+                print(f"❌ Question generation failed for article[{i}]: {result}")
+                articles[i].true_false_not_given_questions_data = []
+            else:
+                articles[i].true_false_not_given_questions_data = result
+        print("✅ Finished generating questions...")
 
     # Tagging
     if news_instance.media_name!="FactcheckLab" and news_instance.media_name!="TFCNews" and news_instance.media_name!="MyGoPenNews":
@@ -96,15 +95,23 @@ async def scrape_generate_question_and_classify_and_store_news_for_one_news_outl
         # --- NEW CODE: Generate Misleading Technique Questions ---
         print("🧠 Generating misleading technique questions...")
         for article in articles:
-            # Generate the new question type and append it to the article's question data
-            misleading_question_data = generate_misleading_technique_question(article)
-            print("misleading_question_data:",misleading_question_data)
-            if hasattr(article, 'misleading_techniques_questions_data'):
-                
-                article.misleading_techniques_questions_data.extend(misleading_question_data)
-            else:
-                article.misleading_techniques_questions_data = misleading_question_data
-            print("article.misleading_techniques_questions_data:",article.misleading_techniques_questions_data)
+            # ✅ 防止 None 出現
+            if not hasattr(article, 'misleading_techniques_questions_data') or article.misleading_techniques_questions_data is None:
+                article.misleading_techniques_questions_data = []
+
+            try:
+                misleading_question_data = generate_misleading_technique_question(article)
+                print("misleading_question_data:", misleading_question_data)
+
+                if isinstance(misleading_question_data, list):
+                    article.misleading_techniques_questions_data.extend(misleading_question_data)
+                else:
+                    print("⚠️ misleading_question_data is not a list:", type(misleading_question_data))
+
+                print("article.misleading_techniques_questions_data:", article.misleading_techniques_questions_data)
+            except Exception as e:
+                print(f"❌ Failed to generate misleading technique question for article: {e}")
+                article.misleading_techniques_questions_data = []
         print("✅ Finished generating misleading technique questions...")
     # Store
      # ******************************************DB Connection******************************************
