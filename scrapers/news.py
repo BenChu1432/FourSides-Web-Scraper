@@ -3201,32 +3201,39 @@ class NextAppleNews(News):
         self.title = title_tag["content"].strip() if title_tag else "No title found"
 
         # Extract content
-        paragraphs = soup.find("div",class_="post-content").find_all("p", recursive=False)
-        self.content = "\n".join(p.get_text(strip=True) for p in paragraphs)
+        content_div = soup.find("div", class_="post-content")
+        if content_div:
+            paragraphs = content_div.find_all("p", recursive=False)
+            self.content = "" if content_div is None else "\n".join(p.get_text(strip=True) for p in paragraphs)
+        else:
+            self.content = ""
+            print("⚠️ post-content div not found")
 
         # Extract published date
-        article=soup.find("div",class_="infScroll")
+        article = soup.find("div", class_="infScroll")
         if article:
-            date=article.find("time").get_text()
-            self.published_at=standardTaipeiDateToTimestamp(date)
+            time_tag = article.find("time")
+            if time_tag:
+                date = time_tag.get_text()
+                self.published_at = standardTaipeiDateToTimestamp(date)
 
         # Extract author
-        info_a=soup.find_all("a",style="color: #0275d8;")
-        print("info_a:",info_a)
-        if info_a and info_a[1]:
-            author=info_a[1].get_text()
+        info_a = soup.find_all("a", style="color: #0275d8;")
+        print("info_a:", info_a)
+        if len(info_a) > 1:
+            author = info_a[1].get_text()
             self.authors.append(author)
-        # print("info:",info)
 
         # Extract images
-        content_div=soup.find("div",class_="infScroll")
+        content_div = soup.find("div", class_="infScroll")
         if content_div:
-            figure=content_div.find("figure")
+            figure = content_div.find("figure")
             if figure:
-                img=figure.find("img")
-                if img:
-                    self.images.append(img['data-src'])
-        print("self.images:",self.images)
+                img = figure.find("img")
+                if img and img.get("data-src"):
+                    self.images.append(img["data-src"])
+
+        print("self.images:", self.images)
 
 class TTV(News):
     def __init__(self, url=None):
