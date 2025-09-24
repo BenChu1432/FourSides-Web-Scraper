@@ -18,6 +18,7 @@ CHINESE_TO_ENGLISH_MEDIA = {
     "中華日報": "ChinaDailyNews",
     "三立新聞網": "SETN",
     "蘋果新聞網": "NextAppleNews",
+    "芋傳媒":"TaroNews",
     "鏡週刊": "MirrorMedia",
     "鏡報": "MirrorMedia",
     "NOWnews": "NowNews",

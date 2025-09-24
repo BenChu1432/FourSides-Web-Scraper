@@ -5480,7 +5480,6 @@ class FactcheckLab(News):
         for author in list(dict.fromkeys(author_candidates)):
             self.authors.append(author)
         
-        imageList=[]
         # First image（封面或首圖）
         content=soup.find('section',class_="post-full-content")
         print("content:",content)
@@ -5521,3 +5520,133 @@ class FactcheckLab(News):
                 # raise UnmappedMediaNameError(source_text) from e
                 pass
 
+class TaroNews(News):
+    def __init__(self, url=None):
+        super().__init__(url)  # ✅ 呼叫父類別 News 的 constructor
+        self.media_name = "TaroNews"
+        self.max_pages = 2
+        self.origin = "native"
+
+    def _get_article_urls(self):
+        max_pages=self.max_pages
+        def fetch_page_articles(page):
+            latest_news_url= "https://taronews.tw/archives/page/{page}"
+            base_url = "https://taronews.tw"
+            url = f"{base_url}/?page={page}"
+            print(f"Loading page: {url}")
+
+            # Each thread must create its own driver
+            driver = self.get_chrome_driver()
+
+            try:
+                driver.get(latest_news_url)
+                time.sleep(2)  # wait for JS
+
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select("div.listing-thumbnail article")
+
+                if not articles:
+                    print(f"No articles found on page {page}.")
+                    return []
+
+                page_urls = []
+                for article in articles:
+                    a_tag = article.select_one("h2.title a")
+                    if a_tag:
+                        href = a_tag['href']
+                        full_url = base_url + href
+                        page_urls.append(full_url)
+
+                print(f"Found {len(page_urls)} articles on page {page}")
+                return page_urls
+
+            finally:
+                driver.quit()
+        all_urls = []
+
+        # Running the code
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(fetch_page_articles, page) for page in range(1, max_pages + 1)]
+
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    urls = future.result()
+                    all_urls.extend(urls)
+                except Exception as e:
+                    print(f"Error fetching page: {e}")
+
+        return all_urls
+
+    def parse_article(self, soup):
+        driver = self.get_chrome_driver()
+
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": """
+                Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+                });
+            """
+        })
+
+        driver.execute_script("""
+            let modals = document.querySelectorAll('.popup, .modal, .ad, .overlay, .vjs-modal');
+            modals.forEach(el => el.remove());
+        """)
+
+        print("🔗 嘗試連線至：", self.url)
+
+        try:
+            driver.get(str(self.url))
+            time.sleep(2)
+
+            html = driver.page_source
+            soup = BeautifulSoup(html, "html.parser")
+
+            # title
+            title=soup.find("span.post-title")
+            if title:
+                self.title=title.get_text(strip=True)
+            
+
+            print("self.title:", self.title)
+
+            # content
+            content_div=soup.find('div.single-post-content')
+            if content_div:
+                content_p=content_div.find_all('p')
+                paragraphs=[]
+                for p in content_p:
+                    paragraphs.append(p)
+                self.content = "\n".join(paragraphs)
+
+            # ✅ 擷取作者
+            span_author_name = soup.find("span.post-author-name")
+            if span_author_name:
+                author_name=span_author_name.find('b')
+                if author_name:
+                    self.authors.append(author_name)
+
+            # ✅ 發佈時間
+            published_at_time = soup.find("time.post-published")
+            if published_at_time:
+                publication_date=published_at_time.find('b')
+                self.published_at=publication_date
+                    
+
+            # ✅ 圖片
+            self.images = []
+            header_div = soup.find('div', class_='post-header')
+            if header_div and 'style' in header_div.attrs:
+                style_attr = header_div['style']
+                # Use regex to extract the URL from background-image style
+                match = re.search(r'url\("(.+?)"\)', style_attr)
+                if match:
+                    image_url = match.group(1)
+                    print("Image URL:", image_url)
+                else:
+                    print("No image URL found in style.")
+            else:
+                print("Header div not found or no style attribute.")
+
+        finally:
+            driver.quit()

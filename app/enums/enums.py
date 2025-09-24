@@ -50,6 +50,7 @@ class MediaNameEnum(str, Enum):
     ChinaDailyNews = "ChinaDailyNews"
     SETN = "SETN"
     NextAppleNews = "NextAppleNews"
+    TaroNews="TaroNews"
     MirrorMedia = "MirrorMedia"
     NowNews = "NowNews"
     StormMedia = "StormMedia"
