@@ -81,6 +81,15 @@ def nz(val: Any, default: Any):
     """Coalesce None to a default value."""
     return default if val is None else val
 
+def safe_str(val: Optional[str]) -> str:
+    if not isinstance(val, str):
+        return ""
+    return val.strip()
+
+def safe_list(val) -> list:
+    if not isinstance(val, list):
+        return []
+    return val
 
 # Core operations
 
@@ -117,26 +126,30 @@ async def store_all_articles(articles: List["NewsEntity"], db: AsyncSession):
         article.id = article_id
 
         # Insert related questions safely
+        
         for q in getattr(article, "true_false_not_given_questions_data", []) or []:
             if not isinstance(q, dict):
                 continue
-            question_text = (q.get("question") or "").strip()
+            question_text = safe_str(q.get("question"))
             options = q.get("options") or {}
-            answer = q.get("answer") or ""
-            explanation = q.get("explanation") or ""
+            answer = safe_str(q.get("answer"))
+            explanation = safe_str(q.get("explanation"))
             if not question_text:
-                continue  # skip malformed entry
-            question_entities.append(
-                NewsQuestionEntity(
-                    id=uuid.uuid4(),
-                    question=question_text,
-                    options=options,        # ensure dict/JSON-serializable
-                    answer=answer,
-                    explanation=explanation,
-                    newsId=article.id,
-                    type=QuestionTypeEnum.TRUE_FALSE_NOT_GIVEN_QUESTION
+                continue
+            try:
+                question_entities.append(
+                    NewsQuestionEntity(
+                        id=uuid.uuid4(),
+                        question=question_text,
+                        options=options,
+                        answer=answer,
+                        explanation=explanation,
+                        newsId=article.id,
+                        type=QuestionTypeEnum.TRUE_FALSE_NOT_GIVEN_QUESTION
+                    )
                 )
-            )
+            except Exception as e:
+                print("❌ Failed to append TFNG question:", e)
         # Iterate over the correct attribute
         print("article.misleading_techniques_questions_data:", getattr(article, "misleading_techniques_questions_data", None))
 
@@ -153,28 +166,40 @@ async def store_all_articles(articles: List["NewsEntity"], db: AsyncSession):
                 print("⚠️ Skipping non-dict question:", q)
                 continue
 
-            question_text = (q.get("question") or "").strip()
-            options = q.get("options") or {}
-            answer = q.get("answer") or ""
-            explanation = q.get("explanation") or ""
-
-            if not question_text:
+            # Ensure required fields exist and are strings
+            required_keys = ("question", "options", "answer", "explanation")
+            if not all(k in q for k in required_keys):
+                print("⚠️ Skipping question with missing keys:", q)
                 continue
 
             try:
+                question_text = str(q.get("question", "")).strip()
+                options = q.get("options") or {}
+                answer = str(q.get("answer", "")).strip()
+                explanation = str(q.get("explanation", "")).strip()
+
+                # Validate options dict
+                if not isinstance(options, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in options.items()):
+                    print("⚠️ Skipping question with invalid options format:", options)
+                    continue
+
+                if not question_text:
+                    print("⚠️ Skipping question with empty text")
+                    continue
+
                 question_entities.append(
                     NewsQuestionEntity(
                         id=uuid.uuid4(),
                         question=question_text,
-                        options=dict(options),
+                        options=options,
                         answer=answer,
                         explanation=explanation,
                         newsId=article.id,
-                        type=QuestionTypeEnum.MISGUIDING_TECHNIQUES_QUESTION  # ✅ Enum member
+                        type=QuestionTypeEnum.MISGUIDING_TECHNIQUES_QUESTION
                     )
                 )
             except Exception as e:
-                print("❌ Failed to append question entity:", e)
+                print("❌ Failed to append question entity:", e, "\nData:", q)
         # Prepare News row (coalesce Nones defensively)
         translated_title = nz(
             traditionalChineseUtil.translateIntoTraditionalChinese(getattr(article, "title", None)),
@@ -187,21 +212,24 @@ async def store_all_articles(articles: List["NewsEntity"], db: AsyncSession):
 
         article_dict = {
             "id": article_id,
-            "media_name": media_name_str,
-            "url": article.url,
-            "title": translated_title,
-            "origin": origin_str,
-            "content": translated_content,
+            "media_name": media_name_str or "",
+            "url": article.url or "",
+            "title": nz(traditionalChineseUtil.safeTranslateIntoTraditionalChinese(getattr(article, "title", "")), ""),
+            "origin": origin_str or "",
+            "content": nz(traditionalChineseUtil.safeTranslateIntoTraditionalChinese(getattr(article, "content", "")), ""),
             "published_at": getattr(article, "published_at", None),
-            "authors": nz(getattr(article, "authors", None), []),
-            "images": nz(getattr(article, "images", None), []),
-            "refined_title": nz(getattr(article, "refined_title", None), ""),
-            "journalistic_merits": nz(getattr(article, "journalistic_merits", None), []),
-            "journalistic_demerits": nz(getattr(article, "journalistic_demerits", None), []),
-            "reporting_intention": nz(getattr(article, "reporting_intention", None), ""),
-            "reporting_style": nz(getattr(article, "reporting_style", None), ""),
-            "clickbait": nz(getattr(article, "clickbait", None), None)
+
+            # All lists or strings — null-safe
+            "authors": safe_list(getattr(article, "authors", [])),
+            "images": safe_list(getattr(article, "images", [])),
+            "refined_title": safe_str(getattr(article, "refined_title", "")),
+            "journalistic_merits": safe_list(getattr(article, "journalistic_merits", [])),
+            "journalistic_demerits": safe_list(getattr(article, "journalistic_demerits", [])),
+            "reporting_intention": safe_str(getattr(article, "reporting_intention", "")),
+            "reporting_style": safe_str(getattr(article, "reporting_style", "")),
+            "clickbait": getattr(article, "clickbait", None)  # nullable is okay
         }
+
         values_to_insert.append(article_dict)
         news_to_insert.append(article)
 
