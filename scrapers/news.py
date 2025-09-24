@@ -5302,7 +5302,9 @@ class TFCNews(News):  # ✅ 改這裡:
                     # Accumulate real content
                     if len(text) > 30 and text != title:
                         paragraphs.append(text)
-
+            if not self.title:
+                self.title = "（無標題）"
+            print("self.title:",self.title)
             # Join all content paragraphs
             main_content = "\n\n".join(paragraphs)
             self.content=main_content
