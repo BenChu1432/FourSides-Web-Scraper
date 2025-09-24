@@ -1890,12 +1890,31 @@ class LibertyTimesNet(News):
 
         # Extract content
         content_selectors=[
+             {"selector": "div.article_wrap"},
             {"selector": "div.whitecon.article[data-page='1']"},
             {"selector":"div[data-desc='內文'] div.text"},
             {"selector": "article.article div.text"}, 
             {"selector": "div.text"},  # Preferred - time tag with datetime attribute
         ]
         for selector in content_selectors:
+            if selector["selector"] == "div.article_wrap":
+                article_wrap = soup.find("div", class_="article_wrap")
+                print("article_wrap:",article_wrap)
+                if article_wrap:
+                    appPromo = article_wrap.find("p", class_="appE1121")
+                    subscription=article_wrap.find("a",class_="subs_eDM")
+                    captions = article_wrap.find_all("span", class_="ph_d")
+                    if appPromo:
+                        appPromo.decompose()
+                    if subscription:
+                        subscription.decompose()
+                    if captions:
+                        for caption in captions:
+                            caption.decompose()
+                    content=article_wrap.find_all("p")
+                    self.content = "\n".join(p.get_text(strip=True) for p in content)
+                    print("self.content:",self.content)
+                    break
             if selector["selector"] == "div.text":
                 elements = soup.find_all("div", class_="text")
                 for element in elements:
