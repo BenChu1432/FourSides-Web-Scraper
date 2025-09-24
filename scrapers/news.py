@@ -5242,18 +5242,8 @@ class TFCNews(News):  # ✅ 改這裡:
         return article_urls
 
     def parse_article(self, soup):
-        """
-        Crawl all article URLs, parse each article, print a summary,
-        and return a list of parsed article dictionaries.
+        driver = self.get_chrome_driver()
 
-        Side effects:
-        - Uses Selenium driver
-        - Prints summaries to stdout
-        """
-        # 使用非 headless 模式（可視化）
-        driver=self.get_chrome_driver()
-
-        # 加上防偵測腳本
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
             "source": """
                 Object.defineProperty(navigator, 'webdriver', {
@@ -5261,67 +5251,64 @@ class TFCNews(News):  # ✅ 改這裡:
                 });
             """
         })
+
         driver.execute_script("""
             let modals = document.querySelectorAll('.popup, .modal, .ad, .overlay, .vjs-modal');
             modals.forEach(el => el.remove());
         """)
 
-        # 建議測試短網址，避免過長導致連線問題
         print("🔗 嘗試連線至：", self.url)
 
         try:
             driver.get(str(self.url))
-            time.sleep(2)  # 等待 JS 載入
+            time.sleep(2)
 
             html = driver.page_source
             soup = BeautifulSoup(html, "html.parser")
-            # 1. Find the entry content container
+
             entry_content = soup.find("div", class_="entry-content")
-
-            # Step 1: Collect all 'kt-inside-inner-col' containers
             containers = entry_content.find_all("div", class_="kt-inside-inner-col")
-
-            # Step 2: Collect all meaningful paragraphs across containers
             paragraphs = []
-            title = None
 
+            # ✅ Step 1: 嘗試從 kadence advanced heading 擷取標題
+            self.title = ""
+            heading_tags = soup.select("p.wp-block-kadence-advancedheading")
+            for tag in heading_tags:
+                text = tag.get_text(strip=True)
+                if "？" in text or "?" in text:
+                    self.title = text
+                    break
+
+            # ✅ Step 2: fallback to <strong> 包含問號
+            if not self.title:
+                for container in containers:
+                    for p in container.find_all("p"):
+                        strong = p.find("strong")
+                        if strong and ("？" in strong.text or "?" in strong.text):
+                            self.title = strong.get_text(strip=True)
+                            break
+                    if self.title:
+                        break
+
+            if not self.title:
+                self.title = "（無標題）"
+
+            print("self.title:", self.title)
+
+            # ✅ Step 3: 擷取內文
             for container in containers:
                 for p in container.find_all("p"):
                     text = p.get_text(strip=True)
-                    if not text:
+                    if not text or text == self.title:
                         continue
-                    # Extract title if strong and ends with a question mark
-                    strong = p.find("strong")
-                    if not title and strong and "？" in strong.text:
-                        title = strong.get_text(strip=True)
-                        self.title=title
-                        continue
-                    # Skip metadata paragraphs
                     if any(keyword in text for keyword in ["發佈", "更新", "責任編輯", "記者", "報告編號"]):
                         continue
-                    # Accumulate real content
-                    if len(text) > 30 and text != title:
+                    if len(text) > 30:
                         paragraphs.append(text)
-            if not self.title:
-                self.title = "（無標題）"
-            print("self.title:",self.title)
-            # Join all content paragraphs
-            main_content = "\n\n".join(paragraphs)
-            self.content=main_content
 
-                # if div_elements:
-                #     print("div_elements[0]:",div_elements[0])
-                #     if div_elements[0]:
-                #         title_div=div_elements[0]
-                #         strongs = title_div.select("strong")  # or select_all if it's a custom method
-                #         if strongs:
-                #             title = ' '.join(strong.get_text(strip=True) for strong in strongs)
-                #             self.title=title
-                            
-            print("self.title:",self.title)
-                            
+            self.content = "\n\n".join(paragraphs)
 
-            # 作者
+            # ✅ 擷取作者
             text_all = soup.get_text()
             match = re.search(r"查核記者[:：]?\s*([^\s，、\n]+)", text_all)
             if match:
@@ -5330,25 +5317,25 @@ class TFCNews(News):  # ✅ 改這裡:
             if match:
                 self.authors.append(match.group(1))
 
-            # 發佈日期
+            # ✅ 發佈時間
             match = re.search(r"發[布佈][:：]?\s*(\d{4}-\d{2}-\d{2})", text_all)
             if match:
                 date_str = match.group(1)
                 try:
                     dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
-                    self.published_at = int(dt.timestamp())  # ✅ 轉成整數 timestamp
+                    self.published_at = int(dt.timestamp())
                 except Exception as e:
                     print(f"⚠️ 日期格式錯誤：{date_str} - {e}")
 
-
-            # 圖片
+            # ✅ 圖片
             self.images = []
             for img in soup.find_all("img"):
                 src = img.get("src")
                 if src and src.endswith(".jpg"):
                     self.images.append(src)
+
         finally:
-                driver.quit()
+            driver.quit()
                         
 
 class FactcheckLab(News):
