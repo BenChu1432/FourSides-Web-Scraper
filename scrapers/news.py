@@ -5684,7 +5684,7 @@ class GVM(News):
     def __init__(self, url=None):
         super().__init__(url)  # ✅ 呼叫父類別 News 的 constructor
         self.media_name = "GVM"
-        self.max_pages = 3
+        self.max_pages = 2
         self.origin = "native"
 
     def _get_article_urls(self):
@@ -5719,7 +5719,7 @@ class GVM(News):
                 time.sleep(2)  # Wait for articles to load after scroll
 
                 soup = BeautifulSoup(driver.page_source, "html.parser")
-                articles = soup.select("div.item-list_li")
+                articles = soup.select("li.item-list_li")
 
                 print(f"Page {page+1}: Found {len(articles)} articles")
 
@@ -5729,6 +5729,7 @@ class GVM(News):
                         full_url = a_tag['href']
                         if full_url.startswith("/"):  # Ensure it's a full URL
                             full_url = base_url + full_url
+                            all_urls.append(full_url)
                         if full_url not in all_urls:
                             all_urls.append(full_url)
 
@@ -5736,6 +5737,7 @@ class GVM(News):
             driver.quit()
 
         print(f"Total articles found: {len(all_urls)}")
+        print("all_urls:",all_urls)
         return all_urls
 
     def parse_article(self, soup: BeautifulSoup):
