@@ -5532,28 +5532,25 @@ class TaroNews(News):
         self.origin = "native"
 
     def _get_article_urls(self):
-        max_pages=self.max_pages
-        def fetch_page_articles(page):
-            latest_news_url= "https://taronews.tw/archives/page/{page}"
+        max_pages = self.max_pages
+
+        def fetch_page_articles(page: int):
+            page_urls = []
             base_url = "https://taronews.tw"
-            url = f"{base_url}/?page={page}"
+            latest_news='https://taronews.tw/archives'
+            url = f"{latest_news}/page/{page}/"
             print(f"Loading page: {url}")
 
-            # Each thread must create its own driver
-            driver = self.get_chrome_driver()
-
             try:
-                driver.get(latest_news_url)
-                time.sleep(2)  # wait for JS
-
-                soup = BeautifulSoup(driver.page_source, "html.parser")
+                res = requests.get(url, timeout=15)  # ✅ 用正確的分頁 URL
+                res.raise_for_status()
+                soup = BeautifulSoup(res.text, "html.parser")
                 articles = soup.select("div.listing-thumbnail article")
 
                 if not articles:
                     print(f"No articles found on page {page}.")
                     return []
 
-                page_urls = []
                 for article in articles:
                     a_tag = article.select_one("h2.title a")
                     if a_tag:
@@ -5564,14 +5561,39 @@ class TaroNews(News):
                 print(f"Found {len(page_urls)} articles on page {page}")
                 return page_urls
 
-            finally:
-                driver.quit()
+            except Exception as e:
+                print(f"Requests failed, fallback to Selenium for page {page}: {e}")
+
+                # 若需要 JS 執行再回退到 Selenium
+                driver = self.get_chrome_driver()
+                try:
+                    driver.get(url)  # ✅ 使用分頁 URL
+                    time.sleep(2)  # wait for basic render
+
+                    soup = BeautifulSoup(driver.page_source, "html.parser")
+                    articles = soup.select("div.listing-thumbnail article")
+
+                    if not articles:
+                        print(f"No articles found on page {page}.")
+                        return []
+
+                    
+                    for article in articles:
+                        a_tag = article.select_one("h2.title a")
+                        if a_tag:
+                            href = a_tag['href']
+                            full_url = base_url + href
+                            page_urls.append(full_url)
+
+                    print(f"Found {len(page_urls)} articles on page {page}")
+                    return page_urls
+                finally:
+                    driver.quit()
+
         all_urls = []
 
-        # Running the code
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = [executor.submit(fetch_page_articles, page) for page in range(1, max_pages + 1)]
-
             for future in concurrent.futures.as_completed(futures):
                 try:
                     urls = future.result()
@@ -5579,6 +5601,8 @@ class TaroNews(News):
                 except Exception as e:
                     print(f"Error fetching page: {e}")
 
+        # 去重
+        all_urls = list(dict.fromkeys(all_urls))
         return all_urls
 
     def parse_article(self, soup):
