@@ -227,11 +227,11 @@ async def store_all_articles(articles: List["NewsEntity"], db: AsyncSession):
             "authors": safe_list(getattr(article, "authors", [])),
             "images": safe_list(getattr(article, "images", [])),
             "refined_title": safe_str(getattr(article, "refined_title", "")),
-            "journalistic_merits": list(getattr(article, "journalistic_merits", {}).keys()),
-            "journalistic_demerits": list(getattr(article, "journalistic_demerits", {}).keys()),
-            "reporting_intention": safe_str(getattr(article, "reporting_intention", "")),
-            "reporting_style": safe_str(getattr(article, "reporting_style", "")),
-            "clickbait": getattr(article, "clickbait", None)  # nullable is okay
+            "journalistic_merits": nz(getattr(article, "journalistic_merits", None), []),
+            "journalistic_demerits": nz(getattr(article, "journalistic_demerits", None), []),
+            "reporting_intention": nz(getattr(article, "reporting_intention", None), ""),
+            "reporting_style": nz(getattr(article, "reporting_style", None), ""),
+            "clickbait": nz(getattr(article, "clickbait", None), None)
         }
 
         values_to_insert.append(article_dict)
