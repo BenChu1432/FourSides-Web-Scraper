@@ -199,6 +199,7 @@ class GeminiArticleClassifier:
                 chat = self.model.start_chat(history=[{"role": "user", "parts": [self.system_prompt.strip()]}])
                 response = chat.send_message(user_prompt.strip())
                 data = safe_parse_json(response.text)
+                print(f"🔍data:{data}")
                 return data
             except Exception as e:
                 msg = str(e)
