@@ -5803,123 +5803,146 @@ class GVM(News):
                     full_img_url = urljoin("https://www.gvm.com.tw", src)
                     self.images.append(full_img_url)
 
-class CNYES(News):
+class PChome(News):
     def __init__(self, url=None):
         super().__init__(url)  # ✅ 呼叫父類別 News 的 constructor
-        self.media_name = "GVM"
-        self.max_pages = 1
+        self.media_name = "PChome"
+        self.max_pages = 2
         self.origin = "native"
 
     def _get_article_urls(self):
-        max_pages=self.max_pages
-        latest_news_url = "https://news.cnyes.com/news/cat/headline"
-        base_url="https://news.cnyes.com"
-        print(f"Loading page: {latest_news_url}")
+        max_pages = self.max_pages
 
-        driver=self.get_chrome_driver()
+        def fetch_page_articles(page: int):
+            page_urls = []
+            base_url = "https://news.pchome.com.tw"
+            latest_news='https://news.pchome.com.tw/today'
+            url = f"{latest_news}/{page}/"
+            print(f"Loading page: {url}")
 
-        all_urls = []
+            try:
+                res = requests.get(url, timeout=15)  # ✅ 用正確的分頁 URL
+                res.raise_for_status()
+                soup = BeautifulSoup(res.text, "html.parser")
+                articles = soup.select("div.channel_newssection")
 
-        try:
-            driver.get(latest_news_url)
-            time.sleep(2)  # Wait for initial load
-
-            soup = BeautifulSoup(driver.page_source, "html.parser")
-            articles = soup.select("div.item-card_content")
-            for article in articles:
-                    a_tag = article.select_one("a")
-                    if a_tag:
-                        full_url = a_tag['href']
-                        if full_url.startswith("/"):  # Ensure it's a full URL
-                            full_url = base_url + full_url
-                        if full_url not in all_urls:
-                            all_urls.append(full_url)
-
-
-            for page in range(max_pages-1):
-                # Scroll to bottom
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                time.sleep(2)  # Wait for articles to load after scroll
-
-                soup = BeautifulSoup(driver.page_source, "html.parser")
-                articles = soup.select("div.item-list_li")
-
-                print(f"Page {page+1}: Found {len(articles)} articles")
+                if not articles:
+                    print(f"No articles found on page {page}.")
+                    return []
 
                 for article in articles:
                     a_tag = article.select_one("a")
                     if a_tag:
-                        full_url = a_tag['href']
-                        if full_url.startswith("/"):  # Ensure it's a full URL
-                            full_url = base_url + full_url
-                        if full_url not in all_urls:
-                            all_urls.append(full_url)
+                        href = a_tag['href']
+                        full_url = base_url + href
+                        page_urls.append(full_url)
 
-        finally:
-            driver.quit()
+                print(f"Found {len(page_urls)} articles on page {page}")
+                return page_urls
 
-        print(f"Total articles found: {len(all_urls)}")
+            except Exception as e:
+                print(f"Requests failed, fallback to Selenium for page {page}: {e}")
+
+                # 若需要 JS 執行再回退到 Selenium
+                driver = self.get_chrome_driver()
+                try:
+                    driver.get(url)  # ✅ 使用分頁 URL
+                    time.sleep(2)  # wait for basic render
+
+                    soup = BeautifulSoup(driver.page_source, "html.parser")
+                    articles = soup.select("div.channel_newssection")
+
+                    if not articles:
+                        print(f"No articles found on page {page}.")
+                        return []
+
+                    
+                    for article in articles:
+                        a_tag = article.select_one("a")
+                        if a_tag:
+                            href = a_tag['href']
+                            full_url = base_url + href
+                            page_urls.append(full_url)
+
+                    print(f"Found {len(page_urls)} articles on page {page}")
+                    return page_urls
+                finally:
+                    driver.quit()
+
+        all_urls = []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = [executor.submit(fetch_page_articles, page) for page in range(1, max_pages + 1)]
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    urls = future.result()
+                    all_urls.extend(urls)
+                except Exception as e:
+                    print(f"Error fetching page: {e}")
+
+        # 去重
+        all_urls = list(dict.fromkeys(all_urls))
         return all_urls
 
     def parse_article(self, soup: BeautifulSoup):
-        # ✅ 擷取標題（含 fallback）
-        self.title = ""
-        heading_tags = soup.select("h1.article-head_h1")
-        for tag in heading_tags:
-            text = tag.get_text(strip=True)
-            self.title = text  # fallback 預設
-            if "？" in text or "?" in text:
-                break
+        base_url = "https://news.pchome.com.tw"
+        # title
+        title=soup.find("h1",class_="article_title")
+        if title:
+            self.title=title.get_text(strip=True)
+        
 
-        # ✅ 擷取內文
-        self.content = ""
-        article = soup.find("div", class_="article-content")
-        if article:
-            parts = []
-            for elem in article.descendants:
-                if elem.name == "br":
-                    parts.append("\n")
-                elif isinstance(elem, str):
-                    text = elem.strip()
-                    if text:
-                        parts.append(text)
-            self.content = "".join(parts).strip()
+        print("self.title:", self.title)
 
-        # ✅ 擷取作者與發佈時間
-        self.authors = []
-        self.published_at = None
-        header_info = soup.find("div", class_="article-head_grid")
-        if header_info:
-            # 擷取作者
-            author_a = header_info.find("a", class_="article-head_author")
-            if author_a:
-                author = author_a.get_text(strip=True)
-                self.authors.append(author)
+        # content
+        content_div=soup.find('div',class_="article_text")
+        if content_div is None:
+            content_div=soup.find('div',calss="article_text")
+        print("content_div:",content_div)
+        if content_div:
+            content_p=content_div.find_all('p')
+            paragraphs = []
+            for p in content_p:
+                paragraphs.append(p.get_text(strip=True).replace("更多新聞推薦",""))  # ✅ 取得段落純文字
+            self.content = "\n".join(paragraphs)
 
-            # 擷取日期
-            div_elements = header_info.find_all("div", class_="article-head_box")
-            for div in div_elements:
-                # 找出可能是日期的 p 標籤
-                p_tags = div.find_all("p", class_="article-head_grey")
-                for p in p_tags:
-                    text = p.get_text(strip=True)
-                    if any(token in text for token in ["202", "201", "-", "/"]):  # 粗略偵測日期格式
-                        try:
-                            self.published_at = standardTaipeiDateToTimestamp(text)
-                            raise StopIteration  # 提早跳出所有迴圈
-                        except Exception as e:
-                            print(f"⚠️ Unable to parse date: {text}")
-                            continue
-            else:
-                print("⚠️ No valid date found in header info.")
+        # ✅ 擷取作者
+        func_source_li = soup.find("li", class_="func_source")
+        if func_source_li:
+            author_text = func_source_li.get_text(strip=True)
+            if author_text:
+                # Remove "記者：" from the beginning
+                author_name = author_text.replace("記者：", "").strip()
+                self.authors.append(author_name)
 
-        # ✅ 圖片處理（確保為完整 URL）
+        # ✅ 發佈時間
+        func_time_li = soup.find("li", class_="func_time")
+        if func_time_li:
+            time = func_time_li.find('time')
+            if time:
+                source=time.find('a')
+                if source:
+                    source.decompose()
+                date_str = time.get_text(strip=True)
+                if date_str:
+                    date = date_str.replace("\u3000新聞來源 :", "").strip()
+                    print(f"date:{date}")
+                    self.published_at = standardTaipeiDateToTimestamp(date)
+
+        # ✅ 圖片
         self.images = []
-        figure = soup.find("figure", class_="article-img")
-        if figure:
-            img = figure.find("img")
-            if img:
-                src = img.get("src")
-                if src:
-                    full_img_url = urljoin("https://www.gvm.com.tw", src)
-                    self.images.append(full_img_url)
+        article_text_div = soup.find('div', class_='article_text')
+        if article_text_div:
+            src=article_text_div['src']
+            image_url=base_url+src
+            if image_url:
+                self.images.append(image_url)
+
+        # ✅ 來源
+        func_time_li = soup.find("li", class_="func_time")
+        if func_time_li:
+            origin_a=func_time_li.find("a")
+            if origin_a:
+                origin=origin_a.get_text(strip=True)
+                if origin:
+                    self.origin=origin

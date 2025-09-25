@@ -20,6 +20,7 @@ CHINESE_TO_ENGLISH_MEDIA = {
     "蘋果新聞網": "NextAppleNews",
     "遠見":"GVM",
     "芋傳媒":"TaroNews",
+    "PChome":"PChome",
     "鏡週刊": "MirrorMedia",
     "鏡報": "MirrorMedia",
     "NOWnews": "NowNews",

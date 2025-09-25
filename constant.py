@@ -52,6 +52,7 @@ NEWS_CLASSES = {
     "NextAppleNews": NextAppleNews,
     "GVM":GVM,
     "TaroNews":TaroNews,
+    "PChome":PChome,
     "MirrorMedia": MirrorMedia,
     "NowNews": NowNews,
     "StormMedia": StormMedia,

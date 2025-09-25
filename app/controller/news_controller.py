@@ -45,7 +45,8 @@ async def parse_news_urls(media_name: str):
     try:
         return await news_service.parse_news_urls(parser_class)
     except Exception as e:
-        print("Cannot parse urls:",e)
+        print("Cannot parse urls:", e)
+        return []  # ✅ Return an empty list instead of None
 
 async def scrape_generate_question_and_classify_and_store_news_for_one_news_outlet(media_name: str) -> List[NewsResponse]:
     parser_class = NEWS_CLASSES.get(media_name)
