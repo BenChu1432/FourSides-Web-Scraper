@@ -50,6 +50,7 @@ NEWS_CLASSES = {
     "ChinaDailyNews": ChinaDailyNews,
     "SETN": SETN,
     "NextAppleNews": NextAppleNews,
+    "GVM":GVM,
     "TaroNews":TaroNews,
     "MirrorMedia": MirrorMedia,
     "NowNews": NowNews,

@@ -21,27 +21,18 @@ def debug_chrome_files():
 
 @router.post("/parse-news", response_model=NewsResponse)
 async def parse_news(news: NewsRequest, db: AsyncSession = Depends(get_db)):
-    print("DLLM")
     return await news_controller.parse_news_article(news, db)
+
+@router.get("/parse-news-urls/{media_name}", response_model=List[str])
+async def parse_news_urls(media_name: str):
+    print("media_name:",media_name)
+    return await news_controller.parse_news_urls(media_name)
 
 
 @router.post("/scrape-news/{media_name}", response_model=List[NewsResponse])
 async def fetch_news(media_name: str):
     return await news_controller.scrape_generate_question_and_classify_and_store_news_for_one_news_outlet(media_name)
 
-@router.post("/scrape-news/{media_name}", response_model=List[NewsResponse])
-async def fetch_news(media_name: str):
-    return await news_controller.scrape_for_one_news_outlet(media_name)
-
-
-@router.post("/scrape-all-taiwanese-news", response_model=List[NewsResponse])
-async def fetch_all_news():
-    return await news_controller.scrape_and_store_all_taiwanese_news()
-
-
-@router.post("/get-news", response_model=List[NewsResponse])
-async def get_news_with_filter(filter: NewsFilter, db: AsyncSession = Depends(get_db)):
-    return await news_controller.get_news_with_filter(filter, db)
 
 @router.post("/retry-scraping-existent-news-by-media/{media_name}", response_model=List[str])
 async def retry_scraping_existent_news_by_media(media_name: str):

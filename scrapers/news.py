@@ -170,6 +170,11 @@ class News(ABC):
                 print(f"❌ Selenium failed: {se}")
             finally:
                 driver.quit()
+        print("📌 Title:", self.title)
+        print("📌 Author(s):", self.authors)
+        print("📌 Published At:", self.published_at)
+        print("📌 Content Preview:", self.content[:100], "...")
+        print("📌 Image(s):", self.images)
 
     
     def parse_article_with_errors(self) -> ParseArticleResult:
@@ -5511,7 +5516,6 @@ class FactcheckLab(News):
                     break
             if source_text:
                 break
-
         if source_text:
             try:
                 self.origin = chineseMediaTranslationUtil.map_chinese_media_to_enum(source_text)
@@ -5603,7 +5607,7 @@ class TaroNews(News):
             soup = BeautifulSoup(html, "html.parser")
 
             # title
-            title=soup.find("span.post-title")
+            title=soup.find("span",class_="post-title")
             if title:
                 self.title=title.get_text(strip=True)
             
@@ -5611,38 +5615,38 @@ class TaroNews(News):
             print("self.title:", self.title)
 
             # content
-            content_div=soup.find('div.single-post-content')
+            content_div=soup.find('div',class_="single-post-content")
             if content_div:
                 content_p=content_div.find_all('p')
-                paragraphs=[]
+                paragraphs = []
                 for p in content_p:
-                    paragraphs.append(p)
+                    paragraphs.append(p.get_text(strip=True))  # ✅ 取得段落純文字
                 self.content = "\n".join(paragraphs)
 
             # ✅ 擷取作者
-            span_author_name = soup.find("span.post-author-name")
+            span_author_name = soup.find("span",class_="post-author-name")
             if span_author_name:
-                author_name=span_author_name.find('b')
+                author_name = span_author_name.find('b')
                 if author_name:
-                    self.authors.append(author_name)
+                    self.authors.append(author_name.get_text(strip=True))  # ✅ 轉為 str
 
             # ✅ 發佈時間
-            published_at_time = soup.find("time.post-published")
+            published_at_time = soup.find("time", class_="post-published")
             if published_at_time:
-                publication_date=published_at_time.find('b')
-                self.published_at=publication_date
-                    
+                publication_date_tag = published_at_time.find('b')
+                if publication_date_tag:
+                    date_str = publication_date_tag.get_text(strip=True)
+                    self.published_at = standardTaipeiDateToTimestamp(date_str)
 
             # ✅ 圖片
             self.images = []
             header_div = soup.find('div', class_='post-header')
             if header_div and 'style' in header_div.attrs:
                 style_attr = header_div['style']
-                # Use regex to extract the URL from background-image style
                 match = re.search(r'url\("(.+?)"\)', style_attr)
                 if match:
                     image_url = match.group(1)
-                    print("Image URL:", image_url)
+                    self.images.append(image_url)  # ✅ 加入圖片列表
                 else:
                     print("No image URL found in style.")
             else:
@@ -5691,7 +5695,7 @@ class GVM(News):
                 time.sleep(2)  # Wait for articles to load after scroll
 
                 soup = BeautifulSoup(driver.page_source, "html.parser")
-                articles = soup.select("div.news-list ul li")
+                articles = soup.select("div.item-list_li")
 
                 print(f"Page {page+1}: Found {len(articles)} articles")
 
@@ -5710,98 +5714,186 @@ class GVM(News):
         print(f"Total articles found: {len(all_urls)}")
         return all_urls
 
-    def parse_article(self, soup):
-        driver = self.get_chrome_driver()
+    def parse_article(self, soup: BeautifulSoup):
+        # ✅ 擷取標題（含 fallback）
+        self.title = ""
+        heading_tags = soup.select("h1.article-head_h1")
+        for tag in heading_tags:
+            text = tag.get_text(strip=True)
+            self.title = text  # fallback 預設
+            if "？" in text or "?" in text:
+                break
 
-        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-            "source": """
-                Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-                });
-            """
-        })
+        # ✅ 擷取內文
+        self.content = ""
+        article = soup.find("div", class_="article-content")
+        if article:
+            parts = []
+            for elem in article.descendants:
+                if elem.name == "br":
+                    parts.append("\n")
+                elif isinstance(elem, str):
+                    text = elem.strip()
+                    if text:
+                        parts.append(text)
+            self.content = "".join(parts).strip()
 
-        driver.execute_script("""
-            let modals = document.querySelectorAll('.popup, .modal, .ad, .overlay, .vjs-modal');
-            modals.forEach(el => el.remove());
-        """)
+        # ✅ 擷取作者與發佈時間
+        self.authors = []
+        self.published_at = None
+        header_info = soup.find("div", class_="article-head_grid")
+        if header_info:
+            # 擷取作者
+            author_a = header_info.find("a", class_="article-head_author")
+            if author_a:
+                author = author_a.get_text(strip=True)
+                self.authors.append(author)
 
-        print("🔗 嘗試連線至：", self.url)
+            # 擷取日期
+            div_elements = header_info.find_all("div", class_="article-head_box")
+            for div in div_elements:
+                # 找出可能是日期的 p 標籤
+                p_tags = div.find_all("p", class_="article-head_grey")
+                for p in p_tags:
+                    text = p.get_text(strip=True)
+                    if any(token in text for token in ["202", "201", "-", "/"]):  # 粗略偵測日期格式
+                        try:
+                            self.published_at = standardTaipeiDateToTimestamp(text)
+                            raise StopIteration  # 提早跳出所有迴圈
+                        except Exception as e:
+                            print(f"⚠️ Unable to parse date: {text}")
+                            continue
+            else:
+                print("⚠️ No valid date found in header info.")
+
+        # ✅ 圖片處理（確保為完整 URL）
+        self.images = []
+        figure = soup.find("figure", class_="article-img")
+        if figure:
+            img = figure.find("img")
+            if img:
+                src = img.get("src")
+                if src:
+                    full_img_url = urljoin("https://www.gvm.com.tw", src)
+                    self.images.append(full_img_url)
+
+class CNYES(News):
+    def __init__(self, url=None):
+        super().__init__(url)  # ✅ 呼叫父類別 News 的 constructor
+        self.media_name = "GVM"
+        self.max_pages = 1
+        self.origin = "native"
+
+    def _get_article_urls(self):
+        max_pages=self.max_pages
+        latest_news_url = "https://news.cnyes.com/news/cat/headline"
+        base_url="https://news.cnyes.com"
+        print(f"Loading page: {latest_news_url}")
+
+        driver=self.get_chrome_driver()
+
+        all_urls = []
 
         try:
-            driver.get(str(self.url))
-            time.sleep(2)
+            driver.get(latest_news_url)
+            time.sleep(2)  # Wait for initial load
 
-            html = driver.page_source
-            soup = BeautifulSoup(html, "html.parser")
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            articles = soup.select("div.item-card_content")
+            for article in articles:
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        full_url = a_tag['href']
+                        if full_url.startswith("/"):  # Ensure it's a full URL
+                            full_url = base_url + full_url
+                        if full_url not in all_urls:
+                            all_urls.append(full_url)
 
-            entry_content = soup.find("div", class_="entry-content")
-            containers = entry_content.find_all("div", class_="kt-inside-inner-col")
-            paragraphs = []
 
-            # ✅ Step 1: 嘗試從 kadence advanced heading 擷取標題
-            self.title = ""
-            heading_tags = soup.select("p.wp-block-kadence-advancedheading")
-            for tag in heading_tags:
-                text = tag.get_text(strip=True)
-                if "？" in text or "?" in text:
-                    self.title = text
-                    break
+            for page in range(max_pages-1):
+                # Scroll to bottom
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(2)  # Wait for articles to load after scroll
 
-            # ✅ Step 2: fallback to <strong> 包含問號
-            if not self.title:
-                for container in containers:
-                    for p in container.find_all("p"):
-                        strong = p.find("strong")
-                        if strong and ("？" in strong.text or "?" in strong.text):
-                            self.title = strong.get_text(strip=True)
-                            break
-                    if self.title:
-                        break
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                articles = soup.select("div.item-list_li")
 
-            if not self.title:
-                self.title = "（無標題）"
+                print(f"Page {page+1}: Found {len(articles)} articles")
 
-            print("self.title:", self.title)
-
-            # ✅ Step 3: 擷取內文
-            for container in containers:
-                for p in container.find_all("p"):
-                    text = p.get_text(strip=True)
-                    if not text or text == self.title:
-                        continue
-                    if any(keyword in text for keyword in ["發佈", "更新", "責任編輯", "記者", "報告編號"]):
-                        continue
-                    if len(text) > 30:
-                        paragraphs.append(text)
-
-            self.content = "\n\n".join(paragraphs)
-
-            # ✅ 擷取作者
-            text_all = soup.get_text()
-            match = re.search(r"查核記者[:：]?\s*([^\s，、\n]+)", text_all)
-            if match:
-                self.authors.append(match.group(1))
-            match = re.search(r"責任編輯[:：]?\s*([^\s，、\n]+)", text_all)
-            if match:
-                self.authors.append(match.group(1))
-
-            # ✅ 發佈時間
-            match = re.search(r"發[布佈][:：]?\s*(\d{4}-\d{2}-\d{2})", text_all)
-            if match:
-                date_str = match.group(1)
-                try:
-                    dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
-                    self.published_at = int(dt.timestamp())
-                except Exception as e:
-                    print(f"⚠️ 日期格式錯誤：{date_str} - {e}")
-
-            # ✅ 圖片
-            self.images = []
-            for img in soup.find_all("img"):
-                src = img.get("src")
-                if src and src.endswith(".jpg"):
-                    self.images.append(src)
+                for article in articles:
+                    a_tag = article.select_one("a")
+                    if a_tag:
+                        full_url = a_tag['href']
+                        if full_url.startswith("/"):  # Ensure it's a full URL
+                            full_url = base_url + full_url
+                        if full_url not in all_urls:
+                            all_urls.append(full_url)
 
         finally:
             driver.quit()
+
+        print(f"Total articles found: {len(all_urls)}")
+        return all_urls
+
+    def parse_article(self, soup: BeautifulSoup):
+        # ✅ 擷取標題（含 fallback）
+        self.title = ""
+        heading_tags = soup.select("h1.article-head_h1")
+        for tag in heading_tags:
+            text = tag.get_text(strip=True)
+            self.title = text  # fallback 預設
+            if "？" in text or "?" in text:
+                break
+
+        # ✅ 擷取內文
+        self.content = ""
+        article = soup.find("div", class_="article-content")
+        if article:
+            parts = []
+            for elem in article.descendants:
+                if elem.name == "br":
+                    parts.append("\n")
+                elif isinstance(elem, str):
+                    text = elem.strip()
+                    if text:
+                        parts.append(text)
+            self.content = "".join(parts).strip()
+
+        # ✅ 擷取作者與發佈時間
+        self.authors = []
+        self.published_at = None
+        header_info = soup.find("div", class_="article-head_grid")
+        if header_info:
+            # 擷取作者
+            author_a = header_info.find("a", class_="article-head_author")
+            if author_a:
+                author = author_a.get_text(strip=True)
+                self.authors.append(author)
+
+            # 擷取日期
+            div_elements = header_info.find_all("div", class_="article-head_box")
+            for div in div_elements:
+                # 找出可能是日期的 p 標籤
+                p_tags = div.find_all("p", class_="article-head_grey")
+                for p in p_tags:
+                    text = p.get_text(strip=True)
+                    if any(token in text for token in ["202", "201", "-", "/"]):  # 粗略偵測日期格式
+                        try:
+                            self.published_at = standardTaipeiDateToTimestamp(text)
+                            raise StopIteration  # 提早跳出所有迴圈
+                        except Exception as e:
+                            print(f"⚠️ Unable to parse date: {text}")
+                            continue
+            else:
+                print("⚠️ No valid date found in header info.")
+
+        # ✅ 圖片處理（確保為完整 URL）
+        self.images = []
+        figure = soup.find("figure", class_="article-img")
+        if figure:
+            img = figure.find("img")
+            if img:
+                src = img.get("src")
+                if src:
+                    full_img_url = urljoin("https://www.gvm.com.tw", src)
+                    self.images.append(full_img_url)

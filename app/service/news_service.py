@@ -13,7 +13,7 @@ from scrapers.news import News
 from app.modals.newsEntity import NewsEntity
 from app.dto.dto import NewsResponse
 import constant
-from scrapers.scrape_news import scrape_specified_news, scrape_unique_news
+from scrapers.scrape_news import scrape_news_urls, scrape_specified_news, scrape_unique_news
 from app.repositories import news_repository
 from app.dto.dto import NewsFilter
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -147,23 +147,18 @@ async def scrape_and_translate_news(parser_class: Type[News]):
     # Store
     return articles
 
-async def scrape_and_store_all_taiwanese_news():
-    # Several concerns:
-    # 1.lack of memory with so many articles
-    # 2.DB disconnections
-    # 3.Stale DB connections
-    for parser_class in constant.TAIWAN_MEDIA:
-        print("parser_class:",parser_class)
-        print(f"🔍 Scraping from: {parser_class.__name__}")
-        await scrape_generate_question_and_classify_and_store_news_for_one_news_outlet(parser_class)
-
-
-async def get_filtered_news(filter:NewsFilter, db):
-    news_entities=await news_repository.get_filtered_news(filter,db)
-    # newsEntities into newsResponse
-    news_responses = [NewsResponse.model_validate(entity) for entity in news_entities]
-    return news_responses
-
+async def parse_news_urls(parser_class: Type[News]):
+    news_instance = parser_class()
+    print("news_instance.media_name:",news_instance.media_name)
+    # Scrape
+    try:
+        article_urls: List[str] = await scrape_news_urls(parser_class)
+        print(f"✅ Limited to {len(article_urls)} URLs")
+        return article_urls
+    except Exception as e:
+        print("error:",e)
+        # Raise HTTPException to notify the client
+        return []
 
 async def retry_scraping_existent_news_by_media(media_name,parser_class):
     async with AsyncSessionLocal() as db:

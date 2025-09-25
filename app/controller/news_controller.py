@@ -40,6 +40,12 @@ async def parse_news_article(news: NewsRequest, db: AsyncSession) -> NewsRespons
         origin=article.origin,
     )
 
+async def parse_news_urls(media_name: str):
+    parser_class = NEWS_CLASSES.get(media_name)
+    try:
+        return await news_service.parse_news_urls(parser_class)
+    except Exception as e:
+        print("Cannot parse urls:",e)
 
 async def scrape_generate_question_and_classify_and_store_news_for_one_news_outlet(media_name: str) -> List[NewsResponse]:
     parser_class = NEWS_CLASSES.get(media_name)
@@ -50,15 +56,6 @@ async def scrape_generate_question_and_classify_and_store_news_for_one_news_outl
     except Exception as e:
         print("Either scrape/classify/store goes wrong!:",e)
 
-async def scrape_and_store_all_taiwanese_news() -> List[NewsResponse]:
-    return await news_service.scrape_and_store_all_taiwanese_news()
-
-
-async def get_news_with_filter(filter: NewsFilter, db: AsyncSession) -> List[NewsResponse]:
-    try:
-        return await news_service.get_filtered_news(filter, db)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
     
 async def retry_scraping_existent_news_by_media(media_name:str):
     parser_class = NEWS_CLASSES.get(media_name)

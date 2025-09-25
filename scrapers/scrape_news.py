@@ -6,6 +6,13 @@ from app.service import news_service, scrape_service
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
+async def scrape_news_urls(parser_class: type[News]):
+    # Fetch urls
+    scraper = parser_class()
+    scrape_urls_result = scraper.get_article_urls_with_errors()
+    article_urls = scrape_urls_result.urls
+    return article_urls
+
 # Fetch urls and return list of news articles
 async def scrape_unique_news(parser_class: type[News],jobId,db_factory):
     # Fetch urls
