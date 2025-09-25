@@ -210,6 +210,10 @@ async def store_all_articles(articles: List["NewsEntity"], db: AsyncSession):
             getattr(article, "content", "") or ""
         )
 
+        print("✅ Storing merits:", article.journalistic_merits)
+        print("✅ Storing demerits:", article.journalistic_demerits)
+
+
         article_dict = {
             "id": article_id,
             "media_name": media_name_str or "",
@@ -223,8 +227,8 @@ async def store_all_articles(articles: List["NewsEntity"], db: AsyncSession):
             "authors": safe_list(getattr(article, "authors", [])),
             "images": safe_list(getattr(article, "images", [])),
             "refined_title": safe_str(getattr(article, "refined_title", "")),
-            "journalistic_merits": safe_list(getattr(article, "journalistic_merits", [])),
-            "journalistic_demerits": safe_list(getattr(article, "journalistic_demerits", [])),
+            "journalistic_merits": list(getattr(article, "journalistic_merits", {}).keys()),
+            "journalistic_demerits": list(getattr(article, "journalistic_demerits", {}).keys()),
             "reporting_intention": safe_str(getattr(article, "reporting_intention", "")),
             "reporting_style": safe_str(getattr(article, "reporting_style", "")),
             "clickbait": getattr(article, "clickbait", None)  # nullable is okay
