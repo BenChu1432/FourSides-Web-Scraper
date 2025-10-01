@@ -4713,7 +4713,7 @@ class CTWant(News):
         def fetch_page_articles(page):
             page_urls=[]
             latest_news_url = f"https://www.ctwant.com/category/%E6%9C%80%E6%96%B0?page={page}/"
-            base_url="https://www.ctwant.com/"
+            base_url="https://www.ctwant.com"
             print(f"Loading page: {latest_news_url}")
 
             # Each thread must create its own driver
