@@ -136,6 +136,7 @@ class News(ABC):
         pass
 
     def _fetch_and_parse(self):
+        driver = None  # ✅ 初始化 driver
         try:
             headers = {
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
@@ -169,7 +170,8 @@ class News(ABC):
             except Exception as se:
                 print(f"❌ Selenium failed: {se}")
             finally:
-                driver.quit()
+                if driver:  # ✅ 確保 driver 已建立
+                    driver.quit()
         print("📌 Title:", self.title)
         print("📌 Author(s):", self.authors)
         print("📌 Published At:", self.published_at)
@@ -5564,11 +5566,11 @@ class TaroNews(News):
             except Exception as e:
                 print(f"Requests failed, fallback to Selenium for page {page}: {e}")
 
-                # 若需要 JS 執行再回退到 Selenium
-                driver = self.get_chrome_driver()
+                driver = None  # ✅ 預設為 None
                 try:
-                    driver.get(url)  # ✅ 使用分頁 URL
-                    time.sleep(2)  # wait for basic render
+                    driver = self.get_chrome_driver()
+                    driver.get(url)
+                    time.sleep(2)
 
                     soup = BeautifulSoup(driver.page_source, "html.parser")
                     articles = soup.select("div.listing-thumbnail article")
@@ -5577,7 +5579,6 @@ class TaroNews(News):
                         print(f"No articles found on page {page}.")
                         return []
 
-                    
                     for article in articles:
                         a_tag = article.select_one("h2.title a")
                         if a_tag:
@@ -5587,8 +5588,12 @@ class TaroNews(News):
 
                     print(f"Found {len(page_urls)} articles on page {page}")
                     return page_urls
+                except Exception as se:
+                    print(f"Selenium failed for page {page}: {se}")
+                    return []
                 finally:
-                    driver.quit()
+                    if driver:  # ✅ 確保 driver 存在才執行 quit
+                        driver.quit()
 
         all_urls = []
 
