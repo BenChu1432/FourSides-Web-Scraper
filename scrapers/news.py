@@ -148,6 +148,7 @@ class News(ABC):
                         'Upgrade-Insecure-Requests': '1',
                     }
             response = requests.get(self.url, headers=headers, timeout=5)
+            response.encoding = 'utf-8'
             response.raise_for_status()
 
             soup = BeautifulSoup(response.text, "html.parser")
@@ -5016,6 +5017,7 @@ class CTS(News):
         news_src_p=soup.find("p",class_="news-src")
         if news_src_p:
             news_source=news_src_p.get_text()
+            print("🔎 Raw news source:", news_source)
             if "華視新聞" not in news_source:
                 news_source=news_source.replace("新聞來源：","").strip()
                 try:
